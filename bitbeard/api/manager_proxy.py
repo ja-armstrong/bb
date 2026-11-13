@@ -22,8 +22,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 10.0
 
 #: Trusted headers (ADR-0002): the acting Account on the proxied request.
+#: The name is what Lifecycle Events attribute; the id is what the
+#: manager's ``downloads`` record names as its owner.
 ACCOUNT_HEADER = "X-Bitbeard-Account"
 DISCORD_HEADER = "X-Bitbeard-Discord"
+ACCOUNT_ID_HEADER = "X-Bitbeard-Account-Id"
 
 
 class ManagerUnavailable(Exception):
@@ -90,6 +93,7 @@ class ManagerProxy:
         json: Any = None,
         account: str | None = None,
         discord: str | None = None,
+        account_id: int | None = None,
     ) -> ProxyResponse:
         """Send one request to the manager or raise ``ManagerUnavailable``."""
         headers = {"Authorization": f"Bearer {self._service_token}"}
@@ -97,6 +101,8 @@ class ManagerProxy:
             headers[ACCOUNT_HEADER] = account
         if discord is not None:
             headers[DISCORD_HEADER] = discord
+        if account_id is not None:
+            headers[ACCOUNT_ID_HEADER] = str(account_id)
         try:
             return self._transport(
                 method,

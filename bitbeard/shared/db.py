@@ -19,6 +19,10 @@ from typing import Any
 
 from .security import hash_password
 
+#: Sentinel in ``users.quota_bytes`` meaning the Account has no cap at all.
+#: ``NULL`` means "use the API's global default"; any other value is the cap.
+QUOTA_UNLIMITED = -1
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -274,3 +278,223 @@ def query_audit(
         for row in rows
     ]
     return {"entries": entries, "total": total, "limit": limit, "offset": offset}
+
+
+# --- Downloads (ownership records) ----------------------------------------
+#
+# The ``downloads`` row is the persistent ownership record of a Download:
+# qBittorrent state is never consulted for ownership. The Download Manager
+# writes the lifecycle (submit -> discover -> complete/cancel/release); the
+# API reads the same rows to pre-check Storage Quotas and answer /me/quota.
+
+
+def insert_download(
+    path: str,
+    *,
+    account: int | None,
+    discord_name: str | None,
+    name: str,
+    category: str,
+    save_path: str,
+    size_bytes: int,
+) -> int:
+    """Insert the ownership record of a just-submitted Download.
+
+    The row starts In-flight with the projected size (0 when unknown, e.g.
+    a magnet submitted without a Torznab result at hand). Returns the row
+    id the manager keys the torrent lifecycle on.
+    """
+    with closing(connect(path)) as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO downloads
+                (account, discord_name, name, category, save_path,
+                 size_bytes, status, submitted_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'in_flight', ?)
+            """,
+            (account, discord_name, name, category, save_path, size_bytes, utc_now()),
+        )
+        connection.commit()
+    return cursor.lastrowid
+
+
+def get_download(path: str, download_id: int) -> sqlite3.Row | None:
+    """Look up one Download record by id."""
+    with closing(connect(path)) as connection:
+        return connection.execute(
+            "SELECT * FROM downloads WHERE id = ?", (download_id,)
+        ).fetchone()
+
+
+def set_download_save_path(path: str, download_id: int, save_path: str) -> None:
+    """Point a Download record at its per-Download directory.
+
+    The save path is carved out of the Media Root as
+    ``<Media Root>/<Category>/<download id>`` once the row id exists, so a
+    Download's files are deletable and accountable without touching its
+    neighbours.
+    """
+    with closing(connect(path)) as connection:
+        connection.execute(
+            "UPDATE downloads SET save_path = ? WHERE id = ?",
+            (save_path, download_id),
+        )
+        connection.commit()
+
+
+def update_download_name(path: str, download_id: int, name: str) -> None:
+    """Record the torrent's real name once qBittorrent knows it.
+
+    At submission only the Torznab title (if any) is known; qBittorrent
+    assigns the authoritative name when metadata arrives.
+    """
+    with closing(connect(path)) as connection:
+        connection.execute(
+            "UPDATE downloads SET name = ? WHERE id = ?", (name, download_id)
+        )
+        connection.commit()
+
+
+def set_download_size(path: str, download_id: int, size_bytes: int) -> None:
+    """Correct a Download's recorded size without touching status."""
+    with closing(connect(path)) as connection:
+        connection.execute(
+            "UPDATE downloads SET size_bytes = ? WHERE id = ?",
+            (size_bytes, download_id),
+        )
+        connection.commit()
+
+
+def complete_download(
+    path: str, download_id: int, *, name: str, size_bytes: int
+) -> None:
+    """Mark a Download completed: actual size, completion timestamp.
+
+    The row is kept after the torrent is deleted from qBittorrent — the
+    files remain and stay owned (the spec's decision of record).
+    """
+    with closing(connect(path)) as connection:
+        connection.execute(
+            """
+            UPDATE downloads
+            SET name = ?, size_bytes = ?, status = 'completed', completed_at = ?
+            WHERE id = ?
+            """,
+            (name, size_bytes, utc_now(), download_id),
+        )
+        connection.commit()
+
+
+def cancel_download(path: str, download_id: int) -> None:
+    """Mark a Download cancelled: it no longer counts against its owner.
+
+    Partial files the torrent already wrote are left on disk (the Admin
+    file manager owns Media Root cleanup) but carry no quota.
+    """
+    with closing(connect(path)) as connection:
+        connection.execute(
+            """
+            UPDATE downloads
+            SET status = 'cancelled', size_bytes = 0, completed_at = ?
+            WHERE id = ?
+            """,
+            (utc_now(), download_id),
+        )
+        connection.commit()
+
+
+def delete_download_row(path: str, download_id: int) -> sqlite3.Row | None:
+    """Drop a Download record; returns the row so callers can settle quota."""
+    with closing(connect(path)) as connection:
+        row = connection.execute(
+            "SELECT * FROM downloads WHERE id = ?", (download_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        connection.execute("DELETE FROM downloads WHERE id = ?", (download_id,))
+        connection.commit()
+    return row
+
+
+def all_downloads(path: str) -> list[sqlite3.Row]:
+    """Every Download record, for reconciliation."""
+    with closing(connect(path)) as connection:
+        return connection.execute("SELECT * FROM downloads").fetchall()
+
+
+def sum_download_sizes(path: str, account_id: int) -> int:
+    """One Account's recorded Download bytes: on-disk plus In-flight.
+
+    Completed rows carry the actual on-disk size, In-flight rows the
+    projected one, cancelled rows zero — so this sum is the projected
+    usage the submission pre-check compares against the cap.
+    """
+    with closing(connect(path)) as connection:
+        return connection.execute(
+            "SELECT COALESCE(SUM(size_bytes), 0) FROM downloads WHERE account = ?",
+            (account_id,),
+        ).fetchone()[0]
+
+
+def download_usage_by_account(path: str) -> dict[int, int]:
+    """Recorded Download bytes per Account id, for reconciliation."""
+    with closing(connect(path)) as connection:
+        rows = connection.execute(
+            "SELECT account, SUM(size_bytes) AS total FROM downloads"
+            " WHERE account IS NOT NULL GROUP BY account"
+        ).fetchall()
+    return {row["account"]: row["total"] for row in rows}
+
+
+# --- Storage Quota counters ------------------------------------------------
+
+
+def all_account_ids(path: str) -> list[int]:
+    """Every Account id, so reconciliation can reset stale counters."""
+    with closing(connect(path)) as connection:
+        return [
+            row[0]
+            for row in connection.execute("SELECT id FROM users").fetchall()
+        ]
+
+
+def set_quota_bytes(path: str, account_id: int, quota_bytes: int | None) -> bool:
+    """Set an Account's Storage Quota override.
+
+    ``None`` resets to the global default; ``QUOTA_UNLIMITED`` removes the
+    cap; any other value is the cap in bytes. Returns True when the
+    Account exists.
+    """
+    with closing(connect(path)) as connection:
+        cursor = connection.execute(
+            "UPDATE users SET quota_bytes = ? WHERE id = ?",
+            (quota_bytes, account_id),
+        )
+        connection.commit()
+    return cursor.rowcount > 0
+
+
+def adjust_quota_used(path: str, account_id: int, delta: int) -> None:
+    """Move an Account's usage counter by ``delta`` bytes.
+
+    Clamped at zero so a lost adjustment can never display as negative
+    usage; reconciliation recomputes the truth from the records anyway.
+    """
+    with closing(connect(path)) as connection:
+        connection.execute(
+            "UPDATE users SET quota_used_bytes = MAX(0, quota_used_bytes + ?)"
+            " WHERE id = ?",
+            (delta, account_id),
+        )
+        connection.commit()
+
+
+def set_quota_used(path: str, account_id: int, used_bytes: int) -> bool:
+    """Overwrite an Account's usage counter (reconciliation's correction)."""
+    with closing(connect(path)) as connection:
+        cursor = connection.execute(
+            "UPDATE users SET quota_used_bytes = ? WHERE id = ?",
+            (used_bytes, account_id),
+        )
+        connection.commit()
+    return cursor.rowcount > 0

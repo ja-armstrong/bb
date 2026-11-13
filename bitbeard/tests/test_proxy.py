@@ -155,6 +155,8 @@ def test_proxied_download_reaches_the_manager_with_the_actor(tmp_path):
     assert call["json"] == {
         "magnet_link": "magnet:?xt=urn:btih:abcdef",
         "category": "Movie",
+        "size_bytes": 0,
+        "title": None,
     }
     assert call["headers"]["X-Bitbeard-Account"] == "admin"
 

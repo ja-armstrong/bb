@@ -9,6 +9,11 @@ from shared.config import env
 DEFAULT_API_URL = "http://127.0.0.1:9870"
 DEFAULT_BOT_URL = "http://127.0.0.1:9872"
 
+#: The shared SQLite store (the same file the API owns) and how often the
+#: Storage Quota reconciliation job runs. ``0`` disables the job.
+DEFAULT_DB_PATH = "/data/bitbeard.db"
+DEFAULT_RECONCILE_INTERVAL_SECONDS = 3600.0
+
 
 @dataclass(frozen=True)
 class Config:
@@ -19,6 +24,8 @@ class Config:
     service_token: str
     api_url: str = DEFAULT_API_URL
     bot_url: str = DEFAULT_BOT_URL
+    db_path: str = DEFAULT_DB_PATH
+    reconcile_interval: float = DEFAULT_RECONCILE_INTERVAL_SECONDS
 
 
 def load_config() -> Config:
@@ -30,4 +37,10 @@ def load_config() -> Config:
         service_token=env("SERVICE_TOKEN"),
         api_url=env("API_URL", default=DEFAULT_API_URL),
         bot_url=env("BOT_URL", default=DEFAULT_BOT_URL),
+        db_path=env("DATABASE_PATH", default=DEFAULT_DB_PATH),
+        reconcile_interval=env(
+            "QUOTA_RECONCILE_INTERVAL",
+            cast=float,
+            default=DEFAULT_RECONCILE_INTERVAL_SECONDS,
+        ),
     )

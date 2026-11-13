@@ -32,12 +32,20 @@ class Announcer(Protocol):
     """Seam for telling the outside world about Lifecycle Events."""
 
     async def announce_submitted(
-        self, torrent_name: str, category: str, actor: str | None = None
+        self,
+        torrent_name: str,
+        category: str,
+        actor: str | None = None,
+        download_id: int | None = None,
     ) -> None:
         """Announce that torrent_name (added under category) was submitted."""
 
     async def announce_completed(
-        self, torrent_name: str, category: str, actor: str | None = None
+        self,
+        torrent_name: str,
+        category: str,
+        actor: str | None = None,
+        download_id: int | None = None,
     ) -> None:
         """Announce that torrent_name (added under category) completed."""
 
@@ -75,19 +83,32 @@ class WebhookAnnouncer:
         self._transport = transport or _default_transport
 
     async def announce_submitted(
-        self, torrent_name: str, category: str, actor: str | None = None
+        self,
+        torrent_name: str,
+        category: str,
+        actor: str | None = None,
+        download_id: int | None = None,
     ) -> None:
-        await self._emit("submitted", torrent_name, category, actor)
+        await self._emit("submitted", torrent_name, category, actor, download_id)
 
     async def announce_completed(
-        self, torrent_name: str, category: str, actor: str | None = None
+        self,
+        torrent_name: str,
+        category: str,
+        actor: str | None = None,
+        download_id: int | None = None,
     ) -> None:
         await self._emit(
-            "completed", torrent_name, category, actor, mirror_to_bot=True
+            "completed",
+            torrent_name,
+            category,
+            actor,
+            download_id,
+            mirror_to_bot=True,
         )
 
     async def announce_all_done(self) -> None:
-        await self._emit("drained", None, None, None)
+        await self._emit("drained", None, None, None, None)
 
     async def _emit(
         self,
@@ -95,6 +116,7 @@ class WebhookAnnouncer:
         torrent_name: str | None,
         category: str | None,
         actor: str | None,
+        download_id: int | None,
         mirror_to_bot: bool = False,
     ) -> None:
         """Send one event to each sink, failing soft per sink."""
@@ -103,6 +125,7 @@ class WebhookAnnouncer:
             "torrent_name": torrent_name,
             "category": category,
             "actor": actor,
+            "download_id": download_id,
         }
         self._post(self._api_events_url, payload)
         if mirror_to_bot and self._bot_webhook_url is not None:

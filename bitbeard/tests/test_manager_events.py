@@ -131,6 +131,7 @@ def test_events_carry_the_actor_torrent_name_and_category():
         "torrent_name": "Some Movie",
         "category": "Movie",
         "actor": "deckhand",
+        "download_id": None,
     }
 
 

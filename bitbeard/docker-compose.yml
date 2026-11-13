@@ -149,6 +149,8 @@ services:
       - JACKETT_API_KEY=${JACKETT_API_KEY}
       - API_URL=${API_URL}
       - BOT_URL=${BOT_URL}
+      - DATABASE_PATH=${DATABASE_PATH}
+      - QUOTA_RECONCILE_INTERVAL=${QUOTA_RECONCILE_INTERVAL}
     volumes:
       - ./data:/data
       - ./media:/media

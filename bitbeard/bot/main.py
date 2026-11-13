@@ -34,6 +34,8 @@ class CompletionEvent(BaseModel):
     torrent_name: str | None = None
     category: str | None = None
     actor: str | None = None
+    #: The Download's ownership-record id, carried for traceability.
+    download_id: int | None = None
 
 
 def _build_discord_client() -> discord.Client:

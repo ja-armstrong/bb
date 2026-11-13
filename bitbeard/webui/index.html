@@ -239,6 +239,7 @@
 
         <div id="app-view" class="hidden">
             <div class="userbar">
+                <span id="quota-info"></span>
                 <span id="userbar-info"></span>
                 <button id="logout-btn">Log out</button>
             </div>
@@ -322,9 +323,36 @@
                     `Logged in as ${me.username} (${me.role})`;
                 loginView.classList.add('hidden');
                 appView.classList.remove('hidden');
+                loadQuota();
                 loadProgress();
             } catch (err) {
                 showLogin();
+            }
+        }
+
+        // --- Storage Quota ---------------------------------------------
+        // The API pre-checks every submission against the Account's cap;
+        // the usage-vs-cap line is shown here and a rejection is rendered
+        // inline on the download form (see the download submit handler).
+        function fmtGB(bytes) {
+            return `${(Number(bytes || 0) / (1024 ** 3)).toFixed(1)} GB`;
+        }
+
+        function formatQuota(q) {
+            if (q.exempt) return `Storage: ${fmtGB(q.used_bytes)} (no cap)`;
+            if (q.unlimited) return `Storage: ${fmtGB(q.used_bytes)} (unlimited)`;
+            return `Storage: ${fmtGB(q.used_bytes)} of ${fmtGB(q.cap_bytes)}`;
+        }
+
+        async function loadQuota() {
+            const el = document.getElementById('quota-info');
+            try {
+                const resp = await fetch(`${API_BASE}/me/quota`);
+                if (handleAuthFailure(resp)) return;
+                if (!resp.ok) { el.textContent = ""; return; }
+                el.textContent = formatQuota(await resp.json());
+            } catch (err) {
+                el.textContent = "";
             }
         }
 
@@ -419,13 +447,16 @@
             const end = start + RESULTS_PER_PAGE;
             const pageResults = searchResults.slice(start, end);
 
-            resultsDiv.innerHTML = pageResults.map(r => {
+            resultsDiv.innerHTML = pageResults.map((r, i) => {
+                // The absolute index into searchResults, so the Download
+                // button can hand the form this result's size and title.
+                const resultIndex = start + i;
                 return `
                     <div class="torrent">
                         <div><strong>${r.title}</strong></div>
                         <div>
                             <button onclick="copyMagnet('${r.magnet_link.replace(/'/g, "\\'")}')">Copy Magnet</button>
-                            <button onclick="prefillDownload('${r.magnet_link.replace(/'/g, "\\'")}')">Download</button>
+                            <button onclick="prefillDownload(${resultIndex})">Download</button>
                         </div>
                         <div class="magnet-link">${r.magnet_link}</div>
                         <div class="torrent-info">
@@ -481,6 +512,18 @@
         });
 
         // Download
+        // When the magnet came from a search result, its Torznab size and
+        // title ride along so the API's quota pre-check and the manager's
+        // ownership record have the real numbers. Pasting a magnet by hand
+        // resets them (size unknown until the torrent completes).
+        let pendingSizeBytes = 0;
+        let pendingTitle = null;
+
+        document.getElementById('magnet-link').addEventListener('input', function() {
+            pendingSizeBytes = 0;
+            pendingTitle = null;
+        });
+
         document.getElementById('download-form').addEventListener('submit', async function(e) {
             e.preventDefault();
             const magnet_link = document.getElementById('magnet-link').value.trim();
@@ -492,13 +535,23 @@
                 const resp = await fetch(`${API_BASE}/download`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ magnet_link, category })
+                    body: JSON.stringify({
+                        magnet_link,
+                        category,
+                        size_bytes: pendingSizeBytes,
+                        title: pendingTitle
+                    })
                 });
                 if (handleAuthFailure(resp)) return;
                 const data = await resp.json();
                 if (resp.ok) {
                     msgDiv.innerHTML = `<span class="success">${data.message}</span>`;
+                    pendingSizeBytes = 0;
+                    pendingTitle = null;
+                    loadQuota();
                 } else {
+                    // Includes the inline "quota exceeded" state: the API's
+                    // rejection message is shown right on the form.
                     msgDiv.innerHTML = `<span class="error">${data.detail || "Failed to start download"}</span>`;
                 }
             } catch (err) {
@@ -575,9 +628,14 @@
             document.body.appendChild(toast);
             setTimeout(() => { toast.remove(); }, 1700);
         }
-        // Helper: Prefill download form
-        window.prefillDownload = function(magnet) {
-            document.getElementById('magnet-link').value = magnet;
+        // Helper: Prefill download form from a search result, carrying the
+        // result's Torznab size and title into the submission.
+        window.prefillDownload = function(resultIndex) {
+            const result = searchResults[resultIndex];
+            if (!result) return;
+            document.getElementById('magnet-link').value = result.magnet_link;
+            pendingSizeBytes = Math.round(Number(result.size_gb || 0) * (1024 ** 3));
+            pendingTitle = result.title;
             window.scrollTo({ top: document.getElementById('download-form').offsetTop - 20, behavior: 'smooth' });
         }
     </script>

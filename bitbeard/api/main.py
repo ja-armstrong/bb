@@ -15,6 +15,12 @@ API resolves a linked Account for attribution, or records the Actor as
 (Search, Download submission, progress, cancel) is proxied to the Download
 Manager with the shared SERVICE_TOKEN and the acting Account as a trusted
 header — the API never touches qBittorrent or Jackett itself.
+
+The API also owns the Storage Quota decision (it owns identity and the cap
+configuration): every Download submission is pre-checked against the
+Actor's projected usage (on-disk plus In-flight) before it is proxied, and
+Admins may set per-Account caps (override / unlimited / global default).
+The manager maintains the usage counter those checks read.
 """
 
 import logging
@@ -82,6 +88,11 @@ class PasswordChange(BaseModel):
 class DownloadRequest(BaseModel):
     magnet_link: str
     category: str
+    #: The projected size from the Torznab result, when the submitter had
+    #: one; 0 means unknown (the record self-corrects at completion).
+    size_bytes: int = Field(default=0, ge=0)
+    #: The Torznab title, when known; qBittorrent's real name replaces it.
+    title: str | None = None
 
 
 class LifecycleEvent(BaseModel):
@@ -91,6 +102,64 @@ class LifecycleEvent(BaseModel):
     torrent_name: str | None = None
     category: str | None = None
     actor: str | None = None
+    #: The Download's ownership-record id, so ledger rows can be traced.
+    download_id: int | None = None
+
+
+class QuotaAssignment(BaseModel):
+    """A per-Account Storage Quota override.
+
+    ``None`` resets the Account to the global default; the
+    ``QUOTA_UNLIMITED`` sentinel removes its cap; any other value is the
+    cap in bytes.
+    """
+
+    quota_bytes: int | None = Field(default=None, ge=db.QUOTA_UNLIMITED)
+
+
+def format_size(size_bytes: int) -> str:
+    """One human-readable size for quota messages."""
+    size = float(size_bytes)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            if unit == "B":
+                return f"{int(size)} B"
+            return f"{size:.2f} {unit}"
+        size /= 1024
+    return f"{size:.2f} TB"
+
+
+def quota_view(account, config: Config) -> dict:
+    """Shape an Account's Storage Quota state for the Frontends.
+
+    ``cap_bytes`` is the effective cap — the Account's override, else the
+    global default — and ``None`` when the Account is exempt (Admins) or
+    unlimited. ``used_bytes`` is the projected usage the pre-check
+    compares against the cap (completed Downloads' on-disk sizes plus
+    In-flight sizes), read straight from the records so display and
+    enforcement can never disagree.
+    """
+    override = account["quota_bytes"]
+    used = db.sum_download_sizes(config.db_path, account["id"])
+    if account["role"] == "admin":
+        return {
+            "used_bytes": used,
+            "cap_bytes": None,
+            "unlimited": False,
+            "exempt": True,
+            "override_bytes": override,
+        }
+    unlimited = override == db.QUOTA_UNLIMITED
+    cap = None if unlimited else (
+        override if override is not None else config.default_quota_bytes
+    )
+    return {
+        "used_bytes": used,
+        "cap_bytes": cap,
+        "unlimited": unlimited,
+        "exempt": False,
+        "override_bytes": override,
+    }
 
 
 def create_app(config: Config | None = None, proxy_transport: Transport | None = None) -> FastAPI:
@@ -237,11 +306,53 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
         The Bot acting for a linked Account forwards that Account; for an
         unlinked Discord user there is no Account, so the lifecycle events
         the manager emits are attributed to the same ``discord:<name>``
-        Actor the Audit Ledger records.
+        Actor the Audit Ledger records — and the Download's ownership
+        record carries that Actor instead of an Account id.
         """
         if caller.via == "discord" and caller.account_id is None:
-            return {"account": None, "discord": caller.username}
-        return {"account": caller.username, "discord": caller.discord_id}
+            return {
+                "account": None,
+                "discord": caller.username,
+                "account_id": None,
+            }
+        return {
+            "account": caller.username,
+            "discord": caller.discord_id,
+            "account_id": caller.account_id,
+        }
+
+    def enforce_quota(caller: Caller, size_bytes: int) -> None:
+        """Refuse a submission that would exceed the Actor's Storage Quota.
+
+        Projected usage is what the Account's ``downloads`` records already
+        account for (completed Downloads' on-disk sizes plus In-flight
+        sizes) plus the new Download's size. The cap is the Account's
+        override, the unlimited sentinel, or the global default; Admins
+        are exempt, as are unlinked Discord users, who have no Account to
+        charge. The error is the message the Webui shows inline and the
+        Bot relays to the Discord channel.
+        """
+        if caller.role == "admin" or caller.account_id is None:
+            return
+        account = db.get_account(config.db_path, caller.account_id)
+        if account is None:
+            return
+        override = account["quota_bytes"]
+        if override == db.QUOTA_UNLIMITED:
+            return
+        cap = override if override is not None else config.default_quota_bytes
+        projected = (
+            db.sum_download_sizes(config.db_path, caller.account_id) + size_bytes
+        )
+        if projected > cap:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Quota exceeded: this Download would put you at "
+                    f"{format_size(projected)} of your {format_size(cap)} "
+                    "limit. Delete something first."
+                ),
+            )
 
     @app.get("/search")
     async def search(q: str = Query(...), caller: Caller = Depends(require_caller)):
@@ -269,11 +380,22 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
     async def download(
         request: DownloadRequest, caller: Caller = Depends(require_caller)
     ):
-        """Submit a Download through the manager on behalf of this Actor."""
+        """Submit a Download through the manager on behalf of this Actor.
+
+        The Storage Quota pre-check runs here, before the proxy: the API
+        owns identity and the cap configuration, so an over-cap submission
+        is rejected without ever reaching the manager.
+        """
+        enforce_quota(caller, request.size_bytes)
         payload = forward_or_502(
             "POST",
             "/download",
-            json={"magnet_link": request.magnet_link, "category": request.category},
+            json={
+                "magnet_link": request.magnet_link,
+                "category": request.category,
+                "size_bytes": request.size_bytes,
+                "title": request.title,
+            },
             **actor_forward(caller),
         )
         db.record_audit(
@@ -323,6 +445,7 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
             details={
                 "torrent_name": event.torrent_name,
                 "category": event.category,
+                "download_id": event.download_id,
             },
         )
         return {"received": True}
@@ -379,6 +502,19 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
         """Echo the calling Account, so Frontends can restore their view."""
         return {"username": caller.username, "role": caller.role}
 
+    @app.get("/me/quota")
+    async def me_quota(caller: Caller = Depends(require_session)):
+        """The calling Account's Storage Quota usage vs cap, for the Webui.
+
+        The search page renders this inline; ``cap_bytes`` is ``None`` for
+        Admins (exempt) and unlimited Accounts, so the Frontend can show a
+        "no cap" state instead of a false zero.
+        """
+        account = db.get_account(config.db_path, caller.account_id)
+        if account is None:
+            raise HTTPException(status_code=401, detail="Not authenticated.")
+        return quota_view(account, config)
+
     @app.post("/auth/logout")
     async def logout(response: Response, caller: Caller = Depends(require_session)):
         """Revoke the calling Session server-side and clear the cookie."""
@@ -419,6 +555,39 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
     async def admin_ping(caller: Caller = Depends(require_admin)):
         """Admin-role gate proof; real admin endpoints come with the panel."""
         return {"message": "pong", "admin": caller.username}
+
+    @app.post("/admin/users/{account_id}/quota")
+    async def admin_set_quota(
+        account_id: int,
+        request: QuotaAssignment,
+        caller: Caller = Depends(require_admin),
+    ):
+        """Set an Account's Storage Quota override — an audited Admin action.
+
+        ``quota_bytes`` is the cap in bytes, ``null`` to fall back to the
+        global default, or ``-1`` (the ``QUOTA_UNLIMITED`` sentinel) to
+        remove the Account's cap entirely. Admins are always exempt
+        regardless of what is stored here.
+        """
+        account = db.get_account(config.db_path, account_id)
+        if account is None:
+            raise HTTPException(status_code=404, detail="No such Account.")
+        db.set_quota_bytes(config.db_path, account_id, request.quota_bytes)
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="quota_assigned",
+            details={
+                "account_id": account_id,
+                "username": account["username"],
+                "quota_bytes": request.quota_bytes,
+            },
+        )
+        updated = db.get_account(config.db_path, account_id)
+        return {
+            "username": account["username"],
+            **quota_view(updated, config),
+        }
 
     @app.get("/admin/audit")
     async def admin_audit(
