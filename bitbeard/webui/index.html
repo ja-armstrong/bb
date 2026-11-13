@@ -449,11 +449,7 @@
             searchResults = [];
             currentPage = 1;
             try {
-                const resp = await fetch(`${API_BASE}/search`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ query })
-                });
+                const resp = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`);
                 if (handleAuthFailure(resp)) return;
                 const data = await resp.json();
                 if (data.results && data.results.length > 0) {
@@ -544,7 +540,11 @@
                 if (handleAuthFailure(resp)) return;
                 const data = await resp.json();
                 if (resp.ok) {
-                    msgDiv.innerHTML = `<span class="success">${data.message}</span>`;
+                    const cancelled = data.cancelled || [];
+                    const names = cancelled.length
+                        ? `Cancelled: ${cancelled.join(", ")}`
+                        : "Nothing to cancel.";
+                    msgDiv.innerHTML = `<span class="success">${names}</span>`;
                     loadProgress();
                 } else {
                     msgDiv.innerHTML = `<span class="error">${data.detail || "Failed to cancel"}</span>`;

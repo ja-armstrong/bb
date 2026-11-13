@@ -7,6 +7,7 @@ from shared.config import env
 DEFAULT_DB_PATH = "/data/bitbeard.db"
 DEFAULT_QUOTA_GB = 50.0
 DEFAULT_SESSION_TTL_HOURS = 24.0
+DEFAULT_MANAGER_URL = "http://127.0.0.1:9871"
 GIB = 1024 ** 3
 
 
@@ -18,6 +19,7 @@ class Config:
     admin_password: str
     default_quota_gb: float
     session_ttl_hours: float = DEFAULT_SESSION_TTL_HOURS
+    manager_url: str = DEFAULT_MANAGER_URL
 
     @property
     def default_quota_bytes(self) -> int:
@@ -35,4 +37,5 @@ def load_config() -> Config:
         session_ttl_hours=env(
             "SESSION_TTL_HOURS", cast=float, default=DEFAULT_SESSION_TTL_HOURS
         ),
+        manager_url=env("MANAGER_URL", default=DEFAULT_MANAGER_URL),
     )

@@ -9,18 +9,28 @@ from typing import Any
 
 import qbittorrentapi
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, Query
 from pydantic import BaseModel
+
+from shared.service_auth import require_service_token
 
 from .config import Config, load_config
 from .downloads import DownloadManager
-from .events import LoggingAnnouncer
+from .events import WebhookAnnouncer
 from .search import search
 
 
 class TorrentRequest(BaseModel):
     magnet_link: str
     category: str
+
+
+#: Trusted headers the API sets on proxied calls (ADR-0002): the acting
+#: Account's name and, when linked, the Discord name it acts for. The
+#: manager does not interpret them — they ride along so Lifecycle Events
+#: and (later) the downloads record stay attributable end to end.
+ACTOR_HEADER = "X-Bitbeard-Account"
+DISCORD_HEADER = "X-Bitbeard-Discord"
 
 
 def make_qbt_client(config: Config) -> qbittorrentapi.Client:
@@ -38,12 +48,13 @@ def make_qbt_client(config: Config) -> qbittorrentapi.Client:
     )
 
 
-def require_service_token(config: Config):
-    def dependency(authorization: str | None = Header(default=None)) -> None:
-        if authorization != f"Bearer {config.service_token}":
-            raise HTTPException(status_code=401, detail="Invalid service token")
-
-    return dependency
+def make_announcer(config: Config) -> WebhookAnnouncer:
+    """Build the Lifecycle Event emitter from the service configuration."""
+    return WebhookAnnouncer(
+        api_base_url=config.api_url,
+        service_token=config.service_token,
+        bot_base_url=config.bot_url,
+    )
 
 
 def create_app(
@@ -59,10 +70,10 @@ def create_app(
     app.state.download_manager = DownloadManager(
         app.state.qbt_client,
         config,
-        announcer or LoggingAnnouncer(),
+        announcer or make_announcer(config),
     )
 
-    service_auth = [Depends(require_service_token(config))]
+    service_auth = [Depends(require_service_token(config.service_token))]
 
     @app.get("/health")
     async def health():
@@ -74,8 +85,16 @@ def create_app(
         return {"results": [result.as_dict() for result in results]}
 
     @app.post("/download", dependencies=service_auth)
-    async def api_download(request: TorrentRequest):
-        app.state.download_manager.submit(request.magnet_link, request.category)
+    async def api_download(
+        request: TorrentRequest,
+        x_bitbeard_account: str | None = Header(default=None),
+        x_bitbeard_discord: str | None = Header(default=None),
+    ):
+        app.state.download_manager.submit(
+            request.magnet_link,
+            request.category,
+            actor=x_bitbeard_account or x_bitbeard_discord,
+        )
         return {"message": "Download started successfully"}
 
     @app.get("/progress", dependencies=service_auth)

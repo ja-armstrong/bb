@@ -121,6 +121,7 @@ services:
       - DEFAULT_QUOTA_GB=${DEFAULT_QUOTA_GB}
       - SESSION_TTL_HOURS=${SESSION_TTL_HOURS}
       - DATABASE_PATH=${DATABASE_PATH}
+      - MANAGER_URL=${MANAGER_URL}
     volumes:
       - ./data:/data
       - /var/run/docker.sock:/var/run/docker.sock
@@ -146,6 +147,8 @@ services:
       - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD}
       - BASE_DOWNLOAD_DIR=${BASE_DOWNLOAD_DIR}
       - JACKETT_API_KEY=${JACKETT_API_KEY}
+      - API_URL=${API_URL}
+      - BOT_URL=${BOT_URL}
     volumes:
       - ./data:/data
       - ./media:/media

@@ -6,28 +6,38 @@ control. It does not talk to qBittorrent or Jackett; media work belongs to the
 Download Manager.
 
 Authentication lives here at the boundary (ADR-0002): everything except
-``/health`` and the ``/auth`` endpoints requires a valid Session cookie, and
-admin endpoints additionally require the Admin Role.
+``/health``, the ``/auth`` endpoints and the token-authed ``/internal/events``
+requires a valid Session cookie, and admin endpoints additionally require the
+Admin Role. User-facing media work (Search, Download submission, progress,
+cancel) is proxied to the Download Manager with the shared SERVICE_TOKEN and
+the acting Account as a trusted header — the API never touches qBittorrent
+or Jackett itself.
 """
 
 import logging
 import sqlite3
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import Literal
 
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from shared import db
 from shared.security import verify_password
+from shared.service_auth import require_service_token
 
 from .config import Config, load_config
+from .manager_proxy import ManagerProxy, ManagerUnavailable, Transport
 from .sessions import SessionStore
 
 logger = logging.getLogger(__name__)
 
 #: The HTTP-only cookie that carries the Session token.
 COOKIE_NAME = "bitbeard_session"
+
+#: Actor recorded for Lifecycle Events that carry no acting Account.
+MANAGER_ACTOR = "download-manager"
 
 
 @dataclass(frozen=True)
@@ -48,8 +58,23 @@ class PasswordChange(BaseModel):
     new_password: str = Field(min_length=8)
 
 
-def create_app(config: Config | None = None) -> FastAPI:
-    """Build the API app. ``config`` is injectable for tests."""
+class DownloadRequest(BaseModel):
+    magnet_link: str
+    category: str
+
+
+class LifecycleEvent(BaseModel):
+    """One Lifecycle Event as the Download Manager emits it."""
+
+    event: Literal["submitted", "completed", "drained"]
+    torrent_name: str | None = None
+    category: str | None = None
+    actor: str | None = None
+
+
+def create_app(config: Config | None = None, proxy_transport: Transport | None = None) -> FastAPI:
+    """Build the API app. ``config`` and the manager transport are
+    injectable for tests."""
     config = config or load_config()
 
     @asynccontextmanager
@@ -98,6 +123,112 @@ def create_app(config: Config | None = None) -> FastAPI:
         if caller.account["role"] != "admin":
             raise HTTPException(status_code=403, detail="Admin Role required.")
         return caller
+
+    proxy = ManagerProxy(config.manager_url, config.service_token, proxy_transport)
+    app.state.manager_proxy = proxy
+
+    def forward_or_502(method: str, path: str, **kwargs) -> dict:
+        """Reach the manager or report the hop as broken.
+
+        The manager's availability is not the Frontends' concern: any
+        failure on the API<->manager hop becomes one 502 the Webui can
+        show inline.
+        """
+        try:
+            response = proxy.forward(method, path, **kwargs)
+        except ManagerUnavailable as exc:
+            logger.warning("Download Manager unavailable: %s", exc)
+            raise HTTPException(
+                status_code=502, detail="Download Manager unavailable."
+            )
+        if response.status_code >= 400:
+            logger.warning(
+                "Download Manager refused a proxied call with %s.",
+                response.status_code,
+            )
+            raise HTTPException(
+                status_code=502, detail="Download Manager unavailable."
+            )
+        return response.payload
+
+    @app.get("/search")
+    async def search(q: str = Query(...), caller: Caller = Depends(require_session)):
+        """Search all Indexers, through the manager, as this Account.
+
+        The query and the Actor are written to the Audit Ledger here, once,
+        at the boundary: the manager neither audits nor learns who to
+        attribute the Search to beyond the trusted header.
+        """
+        payload = forward_or_502(
+            "GET", "/search", params={"q": q}, account=caller.account["username"]
+        )
+        db.record_audit(
+            config.db_path,
+            actor=caller.account["username"],
+            action="search",
+            details={"query": q},
+        )
+        return payload
+
+    @app.post("/download")
+    async def download(
+        request: DownloadRequest, caller: Caller = Depends(require_session)
+    ):
+        """Submit a Download through the manager on behalf of this Account."""
+        payload = forward_or_502(
+            "POST",
+            "/download",
+            json={"magnet_link": request.magnet_link, "category": request.category},
+            account=caller.account["username"],
+            discord=caller.account["discord_id"],
+        )
+        db.record_audit(
+            config.db_path,
+            actor=caller.account["username"],
+            action="download_submit",
+            details={"category": request.category, "via": "webui"},
+        )
+        return payload
+
+    @app.get("/progress")
+    async def progress(caller: Caller = Depends(require_session)):
+        """In-flight Download progress, as the manager sees it."""
+        return forward_or_502("GET", "/progress")
+
+    @app.post("/cancel")
+    async def cancel(caller: Caller = Depends(require_session)):
+        """Cancel Downloads through the manager and record the Actor."""
+        payload = forward_or_502(
+            "POST", "/cancel", account=caller.account["username"]
+        )
+        db.record_audit(
+            config.db_path,
+            actor=caller.account["username"],
+            action="download_cancel",
+            details=payload,
+        )
+        return payload
+
+    @app.post(
+        "/internal/events",
+        dependencies=[Depends(require_service_token(config.service_token))],
+    )
+    async def internal_events(event: LifecycleEvent):
+        """Record a Lifecycle Event the manager emitted (ADR-0002).
+
+        This is the token-authed back door the Session gate deliberately
+        does not cover: the caller is the manager, not a browser.
+        """
+        db.record_audit(
+            config.db_path,
+            actor=event.actor or MANAGER_ACTOR,
+            action=f"lifecycle_{event.event}",
+            details={
+                "torrent_name": event.torrent_name,
+                "category": event.category,
+            },
+        )
+        return {"received": True}
 
     @app.get("/health")
     async def health():

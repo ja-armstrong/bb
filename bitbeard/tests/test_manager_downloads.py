@@ -62,11 +62,15 @@ class FakeQbt:
 
 class CollectingAnnouncer:
     def __init__(self):
+        self.submitted = []
         self.completed = []
         self.all_done_count = 0
 
-    async def announce_completed(self, torrent_name, category):
-        self.completed.append((torrent_name, category))
+    async def announce_submitted(self, torrent_name, category, actor=None):
+        self.submitted.append((torrent_name, category, actor))
+
+    async def announce_completed(self, torrent_name, category, actor=None):
+        self.completed.append((torrent_name, category, actor))
 
     async def announce_all_done(self):
         self.all_done_count += 1
@@ -125,9 +129,22 @@ def test_submit_uses_category_subdirectory_and_completes_quickly():
             "save_path": os.path.join("/media/downloads", "Movie"),
         }
     ]
-    assert announcer.completed == [("Test Torrent", "Movie")]
+    assert announcer.submitted == [("Test Torrent", "Movie", None)]
+    assert announcer.completed == [("Test Torrent", "Movie", None)]
     assert announcer.all_done_count == 1
     assert qbt.torrents == []  # completed torrent was deleted
+
+
+def test_actor_rides_along_on_the_submitted_and_completed_events():
+    manager, _, announcer = make_manager()
+
+    async def run():
+        await manager.submit("magnet:?xt=urn:btih:abc", "Movie", actor="deckhand")
+
+    asyncio.run(run())
+
+    assert announcer.submitted == [("Test Torrent", "Movie", "deckhand")]
+    assert announcer.completed == [("Test Torrent", "Movie", "deckhand")]
 
 
 def test_completion_sweep_deletes_only_hashes_this_manager_submitted():
@@ -149,9 +166,10 @@ def test_completion_sweep_deletes_only_hashes_this_manager_submitted():
     hashes = {t.hash for t in qbt.torrents}
     assert "foreign-completed" in hashes
     assert "foreign-downloading" in hashes
-    assert ("Test Torrent", "TV Show") in announcer.completed
-    assert all(name != "Someone Else's Done Torrent"
-               for name, _ in announcer.completed)
+    assert ("Test Torrent", "TV Show", None) in announcer.completed
+    assert all(
+        name != "Someone Else's Done Torrent" for name, _, _ in announcer.completed
+    )
 
 
 def test_all_done_announced_when_nothing_active():
@@ -188,6 +206,22 @@ def test_all_done_announced_once_only_after_all_concurrent_submits_finish():
     assert len(announcer.completed) == 2
     assert announcer.all_done_count == 1
     assert qbt.torrents == []  # both completed torrents were swept
+
+
+def test_completed_events_keep_each_torrents_own_actor():
+    qbt = FakeQbt()
+    manager, _, announcer = make_manager(qbt=qbt, poll_interval=0.01)
+
+    async def run():
+        t1 = manager.submit("magnet:?xt=urn:btih:one", "Movie", actor="first")
+        t2 = manager.submit("magnet:?xt=urn:btih:two", "TV Show", actor="second")
+        await asyncio.gather(t1, t2)
+
+    asyncio.run(run())
+
+    assert {actor for _, _, actor in announcer.completed} == {"first", "second"}
+    # No attribution rows linger after everything is swept.
+    assert manager._actors == {}
 
 
 def test_all_done_rearms_for_a_later_submit():

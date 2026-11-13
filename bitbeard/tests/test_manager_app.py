@@ -13,8 +13,8 @@ class FakeManager:
         self.submitted = []
         self.cancelled = False
 
-    def submit(self, magnet_link, category):
-        self.submitted.append((magnet_link, category))
+    def submit(self, magnet_link, category, actor=None):
+        self.submitted.append((magnet_link, category, actor))
 
     def progress(self):
         return []
@@ -92,7 +92,44 @@ def test_download_endpoint_submits_to_the_manager():
         )
 
     assert response.status_code == 200
-    assert manager.submitted == [("magnet:?xt=urn:btih:abc", "Movie")]
+    assert manager.submitted == [("magnet:?xt=urn:btih:abc", "Movie", None)]
+
+
+def test_download_endpoint_forwards_trusted_actor_headers_to_the_manager():
+    app = create_app(config=make_config(), qbt_client=FakeQbt())
+    manager = FakeManager()
+    app.state.download_manager = manager
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/download",
+            headers={
+                **AUTH,
+                "X-Bitbeard-Account": "deckhand",
+                "X-Bitbeard-Discord": "salty#1234",
+            },
+            json={"magnet_link": "magnet:?xt=urn:btih:abc", "category": "Movie"},
+        )
+
+    assert response.status_code == 200
+    # The acting Account wins; the Discord name is the fallback.
+    assert manager.submitted == [("magnet:?xt=urn:btih:abc", "Movie", "deckhand")]
+
+
+def test_download_endpoint_falls_back_to_the_discord_name_as_actor():
+    app = create_app(config=make_config(), qbt_client=FakeQbt())
+    manager = FakeManager()
+    app.state.download_manager = manager
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/download",
+            headers={**AUTH, "X-Bitbeard-Discord": "salty#1234"},
+            json={"magnet_link": "magnet:?xt=urn:btih:abc", "category": "Movie"},
+        )
+
+    assert response.status_code == 200
+    assert manager.submitted == [("magnet:?xt=urn:btih:abc", "Movie", "salty#1234")]
 
 
 def test_cancel_endpoint_asks_the_manager_to_cancel():

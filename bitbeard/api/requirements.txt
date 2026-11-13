@@ -1,2 +1,5 @@
 fastapi
 uvicorn
+# Outbound HTTP for the proxy hop to the Download Manager (imported lazily,
+# so importing api.main alone keeps the import-safety guarantee).
+requests

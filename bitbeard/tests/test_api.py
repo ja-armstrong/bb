@@ -54,6 +54,12 @@ def test_database_path_and_quota_have_defaults(monkeypatch):
     assert config.default_quota_gb == 50.0
 
 
+def test_manager_url_has_a_default(monkeypatch):
+    _set_env(monkeypatch)
+
+    assert load_config().manager_url == "http://127.0.0.1:9871"
+
+
 def test_default_quota_is_exposed_in_bytes(monkeypatch):
     _set_env(monkeypatch, DEFAULT_QUOTA_GB="2")
 
