@@ -6,6 +6,7 @@ from shared.config import env
 
 DEFAULT_DB_PATH = "/data/bitbeard.db"
 DEFAULT_QUOTA_GB = 50.0
+DEFAULT_SESSION_TTL_HOURS = 24.0
 GIB = 1024 ** 3
 
 
@@ -16,6 +17,7 @@ class Config:
     admin_user: str
     admin_password: str
     default_quota_gb: float
+    session_ttl_hours: float = DEFAULT_SESSION_TTL_HOURS
 
     @property
     def default_quota_bytes(self) -> int:
@@ -30,4 +32,7 @@ def load_config() -> Config:
         admin_user=env("ADMIN_USER"),
         admin_password=env("ADMIN_PASSWORD"),
         default_quota_gb=env("DEFAULT_QUOTA_GB", cast=float, default=DEFAULT_QUOTA_GB),
+        session_ttl_hours=env(
+            "SESSION_TTL_HOURS", cast=float, default=DEFAULT_SESSION_TTL_HOURS
+        ),
     )

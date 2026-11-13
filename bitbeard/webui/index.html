@@ -150,6 +150,36 @@
             color: #ef4444;
             font-weight: 600;
         }
+        .hidden {
+            display: none !important;
+        }
+        .login-card {
+            max-width: 420px;
+            margin: 60px auto 0 auto;
+        }
+        .userbar {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 12px;
+            color: #f1f5f9;
+            font-size: 0.95em;
+            margin-bottom: 14px;
+        }
+        .userbar button {
+            width: auto;
+            margin-top: 0;
+            padding: 6px 16px;
+            font-size: 0.9em;
+            background: #334155;
+            color: #fbbf24;
+            border-radius: 5px;
+            box-shadow: none;
+        }
+        .userbar button:hover {
+            background: #fbbf24;
+            color: #0f172a;
+        }
         .pagination {
             display: flex;
             justify-content: space-between;
@@ -194,8 +224,26 @@
         <div class="subtitle">Remember kids, if buying a movie doesn't mean you own it, then downloading it from me doesn't mean you're stealing it!</div>
     </header>
     <main>
-        <div class="section">
-            <h2>Search Torrents</h2>
+        <!-- Shown whenever the API refuses the Session (not logged in / expired). -->
+        <div class="section login-card" id="login-view">
+            <h2>Log in</h2>
+            <form id="login-form" autocomplete="off">
+                <label for="login-username">Username:</label>
+                <input type="text" id="login-username" required autocomplete="username">
+                <label for="login-password">Password:</label>
+                <input type="password" id="login-password" required autocomplete="current-password">
+                <button type="submit">Log in</button>
+                <div id="login-message"></div>
+            </form>
+        </div>
+
+        <div id="app-view" class="hidden">
+            <div class="userbar">
+                <span id="userbar-info"></span>
+                <button id="logout-btn">Log out</button>
+            </div>
+            <div class="section">
+                <h2>Search Torrents</h2>
             <form id="search-form" autocomplete="off">
                 <label for="search-query">Query:</label>
                 <input type="text" id="search-query" required placeholder="anything your heart desires">
@@ -234,10 +282,119 @@
             <button id="cancel-btn">Cancel All</button>
             <div id="cancel-message"></div>
         </div>
+        <div class="section">
+            <h2>Change Password</h2>
+            <form id="password-form" autocomplete="off">
+                <label for="current-password">Current password:</label>
+                <input type="password" id="current-password" required autocomplete="current-password">
+                <label for="new-password">New password:</label>
+                <input type="password" id="new-password" minlength="8" required autocomplete="new-password">
+                <button type="submit">Change password</button>
+                <div id="password-message"></div>
+            </form>
+        </div>
+        </div>
     </main>
     <script>
         // --- API base is fixed to same-origin reverse proxy ---
         const API_BASE = "/api";
+
+        // --- Session-aware views -------------------------------------
+        // The API owns authentication (HTTP-only cookie); the Webui simply
+        // asks /auth/me and shows the login page until it answers.
+        const loginView = document.getElementById('login-view');
+        const appView = document.getElementById('app-view');
+
+        function showLogin() {
+            appView.classList.add('hidden');
+            loginView.classList.remove('hidden');
+        }
+
+        async function showApp() {
+            try {
+                const resp = await fetch(`${API_BASE}/auth/me`);
+                if (!resp.ok) {
+                    showLogin();
+                    return;
+                }
+                const me = await resp.json();
+                document.getElementById('userbar-info').textContent =
+                    `Logged in as ${me.username} (${me.role})`;
+                loginView.classList.add('hidden');
+                appView.classList.remove('hidden');
+                loadProgress();
+            } catch (err) {
+                showLogin();
+            }
+        }
+
+        // Route any 401 from a data call back to the login page.
+        function handleAuthFailure(resp) {
+            if (resp.status === 401) {
+                showLogin();
+                return true;
+            }
+            return false;
+        }
+
+        document.getElementById('login-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const msgDiv = document.getElementById('login-message');
+            msgDiv.textContent = "Logging in...";
+            try {
+                const resp = await fetch(`${API_BASE}/auth/login`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        username: document.getElementById('login-username').value,
+                        password: document.getElementById('login-password').value
+                    })
+                });
+                if (resp.ok) {
+                    msgDiv.textContent = "";
+                    showApp();
+                } else {
+                    const data = await resp.json().catch(() => ({}));
+                    msgDiv.innerHTML = `<span class="error">${data.detail || "Login failed"}</span>`;
+                }
+            } catch (err) {
+                msgDiv.innerHTML = `<span class="error">Error: ${err}</span>`;
+            }
+        });
+
+        document.getElementById('logout-btn').addEventListener('click', async function() {
+            await fetch(`${API_BASE}/auth/logout`, { method: "POST" }).catch(() => {});
+            showLogin();
+        });
+
+        document.getElementById('password-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const msgDiv = document.getElementById('password-message');
+            msgDiv.textContent = "Updating...";
+            try {
+                const resp = await fetch(`${API_BASE}/auth/password`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        current_password: document.getElementById('current-password').value,
+                        new_password: document.getElementById('new-password').value
+                    })
+                });
+                if (handleAuthFailure(resp)) return;
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok) {
+                    msgDiv.innerHTML = `<span class="success">Password updated.</span>`;
+                    document.getElementById('password-form').reset();
+                } else {
+                    msgDiv.innerHTML = `<span class="error">${data.detail || "Failed to change password"}</span>`;
+                }
+            } catch (err) {
+                msgDiv.innerHTML = `<span class="error">Error: ${err}</span>`;
+            }
+        });
+
+        // Initial load: prove the Session before revealing the app.
+        showApp();
 
         // --- Search with pagination and extra info ---
         const RESULTS_PER_PAGE = 10;
@@ -297,6 +454,7 @@
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ query })
                 });
+                if (handleAuthFailure(resp)) return;
                 const data = await resp.json();
                 if (data.results && data.results.length > 0) {
                     searchResults = data.results;
@@ -340,6 +498,7 @@
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ magnet_link, category })
                 });
+                if (handleAuthFailure(resp)) return;
                 const data = await resp.json();
                 if (resp.ok) {
                     msgDiv.innerHTML = `<span class="success">${data.message}</span>`;
@@ -357,6 +516,7 @@
             progressDiv.innerHTML = "Loading...";
             try {
                 const resp = await fetch(`${API_BASE}/progress`);
+                if (handleAuthFailure(resp)) return;
                 const data = await resp.json();
                 if (data.progress && data.progress.length > 0) {
                     progressDiv.innerHTML = data.progress.map(t => `
@@ -374,8 +534,6 @@
             }
         }
         document.getElementById('refresh-progress').addEventListener('click', loadProgress);
-        // Initial load
-        loadProgress();
 
         // Cancel
         document.getElementById('cancel-btn').addEventListener('click', async function() {
@@ -383,6 +541,7 @@
             msgDiv.textContent = "Cancelling...";
             try {
                 const resp = await fetch(`${API_BASE}/cancel`, { method: "POST" });
+                if (handleAuthFailure(resp)) return;
                 const data = await resp.json();
                 if (resp.ok) {
                     msgDiv.innerHTML = `<span class="success">${data.message}</span>`;

@@ -14,7 +14,9 @@ media-server containers:
 | `bot` | Discord Frontend and Completion Event webhook | 9872 |
 | `webui` | Static Webui and Admin Panel, proxying `/api` to the API | 80 (host 8081) |
 
-The Webui is published at `localhost:8081` through gluetun. The API, Download Manager
+The Webui is published at `localhost:8081` through gluetun. It shows a login page
+when unauthenticated; the API issues HTTP-only Session cookies (expiry from
+`SESSION_TTL_HOURS`). The API, Download Manager
 and Bot stay internal to the shared gluetun network namespace.
 
 ## Quick setup

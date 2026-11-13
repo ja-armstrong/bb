@@ -9,10 +9,12 @@ Connections are short-lived and per caller. WAL plus a busy timeout lets the
 two writers coexist without one blocking the other for long.
 """
 
+import json
 import os
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
+from typing import Any
 
 from .security import hash_password
 
@@ -131,3 +133,48 @@ def initialize(
         if admin_user is None or admin_password is None:
             return False
         return seed_bootstrap_admin(connection, admin_user, admin_password)
+
+
+def find_account(path: str, username: str) -> sqlite3.Row | None:
+    """Look up an Account by username, for credential checks at login."""
+    with closing(connect(path)) as connection:
+        return connection.execute(
+            "SELECT * FROM users WHERE username = ?", (username,)
+        ).fetchone()
+
+
+def get_account(path: str, account_id: int) -> sqlite3.Row | None:
+    """Look up an Account by id, for resolving the caller of a request."""
+    with closing(connect(path)) as connection:
+        return connection.execute(
+            "SELECT * FROM users WHERE id = ?", (account_id,)
+        ).fetchone()
+
+
+def update_password(path: str, account_id: int, password: str) -> bool:
+    """Replace an Account's password. Returns True when the Account exists.
+
+    Callers decide which Sessions survive the change; this only owns the hash.
+    """
+    with closing(connect(path)) as connection:
+        cursor = connection.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (hash_password(password), account_id),
+        )
+        connection.commit()
+    return cursor.rowcount > 0
+
+
+def record_audit(path: str, actor: str, action: str, details: Any = None) -> None:
+    """Append one Audit Ledger row. ``details`` is stored as JSON."""
+    with closing(connect(path)) as connection:
+        connection.execute(
+            "INSERT INTO audit (ts, actor, action, details) VALUES (?, ?, ?, ?)",
+            (
+                utc_now(),
+                actor,
+                action,
+                json.dumps(details) if details is not None else None,
+            ),
+        )
+        connection.commit()

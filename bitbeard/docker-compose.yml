@@ -119,6 +119,7 @@ services:
       - ADMIN_USER=${ADMIN_USER}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - DEFAULT_QUOTA_GB=${DEFAULT_QUOTA_GB}
+      - SESSION_TTL_HOURS=${SESSION_TTL_HOURS}
       - DATABASE_PATH=${DATABASE_PATH}
     volumes:
       - ./data:/data
