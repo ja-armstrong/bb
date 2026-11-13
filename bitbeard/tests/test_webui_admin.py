@@ -48,6 +48,41 @@ def test_the_admin_panel_ships_the_users_page():
     assert '<button data-page="users" disabled' not in html
 
 
+def test_the_admin_panel_ships_the_files_page():
+    html = read("admin.html")
+
+    # The Files page of ticket #10: the tree browser rooted at the Media
+    # Root plus delete/rename/move against the admin file endpoints.
+    assert 'id="page-files"' in html
+    assert 'id="file-rows"' in html
+    assert 'id="files-up"' in html
+    assert "/admin/files" in html
+    assert "admin/files/${op}" in html
+    assert 'data-file-op="delete"' in html
+    assert 'data-file-op="rename"' in html
+    assert 'data-file-op="move"' in html
+    # The Files nav button is live, no longer a placeholder.
+    assert '<button data-page="files" disabled' not in html
+
+
+def test_the_admin_panel_ships_the_vpn_page():
+    html = read("admin.html")
+
+    # The VPN page of ticket #10: the settings form, the status + test
+    # views, and the gluetun restart that applies the changes.
+    assert 'id="page-vpn"' in html
+    assert 'id="vpn-config-form"' in html
+    assert 'id="vpn-status-rows"' in html
+    assert 'id="vpn-test"' in html
+    assert "/admin/vpn/config" in html
+    assert "/admin/vpn/test" in html
+    assert "/admin/vpn/status" in html
+    # Applying the settings restarts gluetun (the #9 Subsystems action).
+    assert "admin/services/gluetun/restart" in html
+    # The VPN nav button is live, no longer a placeholder.
+    assert '<button data-page="vpn" disabled' not in html
+
+
 def test_nginx_serves_admin_html_at_admin():
     conf = read("default.conf")
 

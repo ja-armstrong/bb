@@ -122,8 +122,13 @@ services:
       - SESSION_TTL_HOURS=${SESSION_TTL_HOURS}
       - DATABASE_PATH=${DATABASE_PATH}
       - MANAGER_URL=${MANAGER_URL}
+      - VPN_PROVIDER=${VPN_PROVIDER}
+      - OPENVPN_DIR=/openvpn
     volumes:
       - ./data:/data
+      # The VPN settings the Admin Panel writes (api.vpn): same directory
+      # the gluetun Subsystem mounts its OpenVPN config from.
+      - ./openvpn:/openvpn
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 

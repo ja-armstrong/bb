@@ -12,6 +12,9 @@ DEFAULT_MANAGER_URL = "http://127.0.0.1:9871"
 # listing filters on (ADR-0003). docker-compose derives the same name from
 # the directory unless COMPOSE_PROJECT_NAME says otherwise.
 DEFAULT_COMPOSE_PROJECT = "bitbeard"
+# Where the compose file mounts the host's ./openvpn — the VPN settings
+# the Admin Panel writes live there (api.vpn).
+DEFAULT_OPENVPN_DIR = "/openvpn"
 GIB = 1024 ** 3
 
 
@@ -25,6 +28,10 @@ class Config:
     session_ttl_hours: float = DEFAULT_SESSION_TTL_HOURS
     manager_url: str = DEFAULT_MANAGER_URL
     compose_project: str = DEFAULT_COMPOSE_PROJECT
+    openvpn_dir: str = DEFAULT_OPENVPN_DIR
+    #: The VPN provider the compose .env seeded; the Admin Panel's written
+    #: settings (openvpn/vpn.env) take precedence once they exist.
+    vpn_provider: str = ""
 
     @property
     def default_quota_bytes(self) -> int:
@@ -46,4 +53,6 @@ def load_config() -> Config:
         compose_project=env(
             "COMPOSE_PROJECT_NAME", default=DEFAULT_COMPOSE_PROJECT
         ),
+        openvpn_dir=env("OPENVPN_DIR", default=DEFAULT_OPENVPN_DIR),
+        vpn_provider=env("VPN_PROVIDER", default=""),
     )

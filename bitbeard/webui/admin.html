@@ -260,14 +260,13 @@
                 <button id="logout-btn">Log out</button>
             </div>
 
-            <!-- One button per Admin Panel page; the Files and VPN pages
-                 land with their own tickets (#10). -->
+            <!-- One button per Admin Panel page. -->
             <nav id="nav">
                 <button data-page="audit" class="active">Audit Ledger</button>
                 <button data-page="users">Users</button>
                 <button data-page="subsystems">Subsystems</button>
-                <button data-page="files" disabled title="Coming with ticket #10">Files</button>
-                <button data-page="vpn" disabled title="Coming with ticket #10">VPN</button>
+                <button data-page="files">Files</button>
+                <button data-page="vpn">VPN</button>
             </nav>
 
             <div class="section page" id="page-audit">
@@ -377,6 +376,66 @@
                     <tbody id="service-rows"></tbody>
                 </table>
                 <div id="services-message"></div>
+            </div>
+
+            <div class="section page hidden" id="page-files">
+                <h2>Media Root Files</h2>
+                <div class="filters">
+                    <div>
+                        <label for="files-path">Current path:</label>
+                        <span id="files-path"></span>
+                    </div>
+                    <button type="button" id="files-up">Up one level</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="file-rows"></tbody>
+                </table>
+                <div id="files-message"></div>
+            </div>
+
+            <div class="section page hidden" id="page-vpn">
+                <h2>VPN (gluetun)</h2>
+                <form id="vpn-config-form" autocomplete="off">
+                    <div class="filters">
+                        <div>
+                            <label for="vpn-provider">Provider:</label>
+                            <input type="text" id="vpn-provider" placeholder="e.g. nordvpn">
+                        </div>
+                        <div>
+                            <label for="vpn-user">OpenVPN user:</label>
+                            <input type="text" id="vpn-user" autocomplete="off">
+                        </div>
+                        <div>
+                            <label for="vpn-password">OpenVPN password:</label>
+                            <input type="password" id="vpn-password" autocomplete="new-password" placeholder="(unchanged)">
+                        </div>
+                        <div>
+                            <label for="vpn-server">Server:</label>
+                            <input type="text" id="vpn-server" placeholder="e.g. us9723.nordvpn.com">
+                        </div>
+                    </div>
+                    <button type="submit">Save &amp; apply (restarts gluetun)</button>
+                    <div id="vpn-config-message"></div>
+                </form>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Setting</th>
+                            <th>Value</th>
+                        </tr>
+                    </thead>
+                    <tbody id="vpn-status-rows"></tbody>
+                </table>
+                <button type="button" id="vpn-test">Test exit IP</button>
+                <div id="vpn-test-message"></div>
             </div>
         </div>
     </main>
@@ -628,6 +687,202 @@
             }
         });
 
+        // --- Files page (ticket #10) -----------------------------------
+        // Relative paths under the Media Root, "/"-separated — the shape
+        // the manager's file browser speaks.
+        let filesPath = "";
+
+        function joinPath(dir, name) {
+            return dir ? `${dir}/${name}` : name;
+        }
+
+        function parentPath(path) {
+            const idx = path.lastIndexOf('/');
+            return idx === -1 ? "" : path.slice(0, idx);
+        }
+
+        async function loadFiles(path = filesPath) {
+            filesPath = path;
+            const rows = document.getElementById('file-rows');
+            try {
+                const resp = await fetch(
+                    `${API_BASE}/admin/files?path=${encodeURIComponent(path)}`
+                );
+                if (handleAuthFailure(resp)) return;
+                const data = await resp.json();
+                if (!resp.ok) {
+                    rows.innerHTML = `<tr><td colspan="4"><span class="error">${esc(data.detail || "Failed to list the Media Root")}</span></td></tr>`;
+                    return;
+                }
+                document.getElementById('files-path').textContent = `/${data.path}`;
+                document.getElementById('files-up').disabled = data.path === "";
+                if (!data.entries.length) {
+                    rows.innerHTML = `<tr><td colspan="4" class="details">Empty directory.</td></tr>`;
+                    return;
+                }
+                rows.innerHTML = data.entries.map(entry => {
+                    const path = joinPath(data.path, entry.name);
+                    return `
+                    <tr>
+                        <td class="actor">${entry.is_dir
+                            ? `<a href="#" class="dir-link" data-path="${esc(path)}">${esc(entry.name)}/</a>`
+                            : esc(entry.name)}</td>
+                        <td>${entry.is_dir ? "Directory" : "File"}</td>
+                        <td>${entry.is_dir ? "—" : formatBytes(entry.size_bytes)}</td>
+                        <td>
+                            <button data-file-op="delete" data-path="${esc(path)}">Delete</button>
+                            <button data-file-op="rename" data-path="${esc(path)}">Rename</button>
+                            <button data-file-op="move" data-path="${esc(path)}">Move</button>
+                        </td>
+                    </tr>`;
+                }).join('');
+            } catch (err) {
+                rows.innerHTML = `<tr><td colspan="4"><span class="error">Error: ${esc(err)}</span></td></tr>`;
+            }
+        }
+
+        document.getElementById('files-up').addEventListener('click', function() {
+            loadFiles(parentPath(filesPath));
+        });
+
+        // One delegated listener: directory navigation and the three
+        // per-entry operations, with inline refusal errors.
+        document.getElementById('file-rows').addEventListener('click', async function(e) {
+            const link = e.target.closest('a.dir-link');
+            if (link) {
+                e.preventDefault();
+                loadFiles(link.dataset.path);
+                return;
+            }
+            const btn = e.target.closest('button[data-file-op]');
+            if (!btn) return;
+            const path = btn.dataset.path;
+            const op = btn.dataset.fileOp;
+            const msgId = 'files-message';
+
+            let body;
+            if (op === 'delete') {
+                if (!confirm(`Hard-delete ${path}? This cannot be undone.`)) return;
+                body = { path };
+            } else if (op === 'rename') {
+                const name = prompt(`New name for ${path}:`);
+                if (!name) return;
+                body = { path, new_name: name.trim() };
+            } else if (op === 'move') {
+                const dir = prompt(
+                    `Move ${path} to which directory inside the Media Root?\n(e.g. Movie, or TV Show/Season 1)`,
+                    parentPath(path)
+                );
+                if (dir === null) return;
+                body = { path, target_dir: dir.trim() };
+            }
+
+            try {
+                const resp = await fetch(`${API_BASE}/admin/files/${op}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body)
+                });
+                if (handleAuthFailure(resp)) return;
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok) {
+                    flash(msgId, op === 'delete' ? `Deleted ${path}.`
+                        : op === 'rename' ? `Renamed ${path} to ${data.to}.`
+                        : `Moved ${path} to ${data.to}.`);
+                } else {
+                    // Protected Paths, sandbox escapes and taken targets
+                    // arrive as the manager's refusal, shown inline.
+                    flash(msgId, data.detail || "The operation was refused.", true);
+                }
+                loadFiles();
+            } catch (err) {
+                flash(msgId, `Error: ${err}`, true);
+            }
+        });
+
+        // --- VPN page (ticket #10) -------------------------------------
+        function renderVpnStatus(vpn) {
+            document.getElementById('vpn-provider').value = vpn.provider || "";
+            document.getElementById('vpn-user').value = vpn.openvpn_user || "";
+            document.getElementById('vpn-server').value = vpn.server || "";
+            document.getElementById('vpn-status-rows').innerHTML = `
+                <tr><td class="actor">Provider</td><td>${esc(vpn.provider || "—")}</td></tr>
+                <tr><td class="actor">Server</td><td>${esc(vpn.server || "—")}</td></tr>
+                <tr><td class="actor">Current egress IP</td><td>${esc(vpn.egress_ip || "unknown (probe failed)")}</td></tr>`;
+        }
+
+        async function loadVpnStatus() {
+            try {
+                const resp = await fetch(`${API_BASE}/admin/vpn/status`);
+                if (handleAuthFailure(resp)) return;
+                const data = await resp.json();
+                if (!resp.ok) {
+                    flash('vpn-config-message', data.detail || "Failed to load VPN status.", true);
+                    return;
+                }
+                renderVpnStatus(data);
+            } catch (err) {
+                flash('vpn-config-message', `Error: ${err}`, true);
+            }
+        }
+
+        document.getElementById('vpn-config-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const msgId = 'vpn-config-message';
+            // An empty field means "leave it unchanged" (null); the API
+            // refuses a field that was provided but blank.
+            const body = {
+                provider: document.getElementById('vpn-provider').value.trim() || null,
+                openvpn_user: document.getElementById('vpn-user').value.trim() || null,
+                openvpn_password: document.getElementById('vpn-password').value || null,
+                server: document.getElementById('vpn-server').value.trim() || null,
+            };
+            try {
+                const resp = await fetch(`${API_BASE}/admin/vpn/config`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body)
+                });
+                if (handleAuthFailure(resp)) return;
+                const data = await resp.json();
+                if (!resp.ok) {
+                    flash(msgId, data.detail || "Could not save the VPN settings.", true);
+                    return;
+                }
+                flash(msgId, "VPN settings saved; restarting gluetun to apply...");
+                // Applying the change needs a gluetun restart — the same
+                // Subsystems action the Subsystems page uses.
+                const restart = await fetch(`${API_BASE}/admin/services/gluetun/restart`, { method: "POST" });
+                if (handleAuthFailure(restart)) return;
+                const restartData = await restart.json().catch(() => ({}));
+                if (restart.ok) {
+                    flash(msgId, "VPN settings saved; gluetun restarted.");
+                } else {
+                    flash(msgId, restartData.detail || "Settings saved, but the gluetun restart was refused.", true);
+                }
+                document.getElementById('vpn-password').value = "";
+                loadVpnStatus();
+            } catch (err) {
+                flash(msgId, `Error: ${err}`, true);
+            }
+        });
+
+        document.getElementById('vpn-test').addEventListener('click', async function() {
+            const msgId = 'vpn-test-message';
+            try {
+                const resp = await fetch(`${API_BASE}/admin/vpn/test`, { method: "POST" });
+                if (handleAuthFailure(resp)) return;
+                const data = await resp.json();
+                if (resp.ok) {
+                    flash(msgId, `Current egress IP: ${data.egress_ip || "unknown (probe failed)"}`);
+                } else {
+                    flash(msgId, data.detail || "The test failed.", true);
+                }
+            } catch (err) {
+                flash(msgId, `Error: ${err}`, true);
+            }
+        });
+
         // --- Panel page routing ---------------------------------------
 
         function showPage(name) {
@@ -641,6 +896,8 @@
             if (name === 'audit') loadLedger();
             else if (name === 'users') loadUsers();
             else if (name === 'subsystems') loadServices();
+            else if (name === 'files') loadFiles();
+            else if (name === 'vpn') loadVpnStatus();
         }
 
         document.querySelectorAll('#nav button:not([disabled])').forEach(btn => {

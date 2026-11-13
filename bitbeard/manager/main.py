@@ -23,7 +23,7 @@ from typing import Any
 import qbittorrentapi
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from shared import db
 from shared.service_auth import require_service_token
@@ -31,6 +31,11 @@ from shared.service_auth import require_service_token
 from .config import Config, load_config
 from .downloads import DownloadManager
 from .events import WebhookAnnouncer
+from .files import (
+    FileManager,
+    InvalidPathError,
+    ProtectedPathError,
+)
 from .quota import (
     ActiveTorrentError,
     NotCompletedError,
@@ -65,6 +70,25 @@ class MediaRenameRequest(BaseModel):
 class MediaMoveRequest(BaseModel):
     #: The Category to move the Download into.
     category: str
+
+
+class FileDeleteRequest(BaseModel):
+    #: The path to delete, relative to the Media Root ("/"-separated).
+    path: str = Field(min_length=1)
+
+
+class FileRenameRequest(BaseModel):
+    #: The path to rename, relative to the Media Root.
+    path: str = Field(min_length=1)
+    #: The new leaf name (no separators — this is a rename, not a move).
+    new_name: str = Field(min_length=1)
+
+
+class FileMoveRequest(BaseModel):
+    #: The path to move, relative to the Media Root.
+    path: str = Field(min_length=1)
+    #: The destination directory, relative to the Media Root.
+    target_dir: str = Field(min_length=1)
 
 
 #: Trusted headers the API sets on proxied calls (ADR-0002): the acting
@@ -163,6 +187,11 @@ def create_app(
         app.state.qbt_client,
         config,
         announcer or make_announcer(config),
+    )
+    app.state.file_manager = FileManager(
+        config.db_path,
+        config.base_download_dir,
+        qbt_client=app.state.qbt_client,
     )
 
     service_auth = [Depends(require_service_token(config.service_token))]
@@ -394,6 +423,64 @@ def create_app(
             )
         app.state.quota_ledger.cancel(download_id)
         return {"cancelled": cancelled}
+
+    # --- Admin file manager (ticket #10) ------------------------------------
+    #
+    # The API gates these on the Admin Role and audits them; the manager
+    # owns the media volume, so the sandbox, the Protected Path guards and
+    # the Download-record bookkeeping all live in manager.files.
+
+    @contextlib.contextmanager
+    def file_guards():
+        """Map the file manager's refusals onto Admin Panel statuses."""
+        try:
+            yield
+        except ProtectedPathError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except (OutsideMediaRootError, InvalidPathError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except PathTakenError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except (FileNotFoundError, NotADirectoryError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+
+    @app.get("/files", dependencies=service_auth)
+    async def api_files(path: str = Query(default="")):
+        """One directory of the Media Root tree, for the panel's browser.
+
+        ``path`` is relative to the Media Root ("" is the root itself); a
+        path that does not exist — or that escapes the Media Root — is
+        refused.
+        """
+        with file_guards():
+            return app.state.file_manager.browse(path)
+
+    @app.post("/files/delete", dependencies=service_auth)
+    async def api_files_delete(request: FileDeleteRequest):
+        """Hard-delete a file or directory tree under the Media Root.
+
+        Protected Paths (Active Torrents) are refused with 409; a
+        whole Download's save path removal drops its record and frees the
+        owner's Storage Quota.
+        """
+        with file_guards():
+            return app.state.file_manager.delete(request.path)
+
+    @app.post("/files/rename", dependencies=service_auth)
+    async def api_files_rename(request: FileRenameRequest):
+        """Rename a file or directory, keeping its place in the tree."""
+        with file_guards():
+            return app.state.file_manager.rename(
+                request.path, request.new_name
+            )
+
+    @app.post("/files/move", dependencies=service_auth)
+    async def api_files_move(request: FileMoveRequest):
+        """Move a file or directory under another directory of the tree."""
+        with file_guards():
+            return app.state.file_manager.move(
+                request.path, request.target_dir
+            )
 
     return app
 

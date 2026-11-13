@@ -25,6 +25,7 @@ The manager maintains the usage counter those checks read.
 """
 
 import logging
+import posixpath
 import secrets
 import sqlite3
 from contextlib import asynccontextmanager
@@ -48,6 +49,7 @@ from .docker_control import (
 )
 from .manager_proxy import ManagerProxy, ManagerUnavailable, Transport
 from .sessions import SessionStore
+from .vpn import VpnControl, VpnSettings
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +165,46 @@ class PasswordReset(BaseModel):
     new_password: str = Field(min_length=8)
 
 
+class FileDeleteRequest(BaseModel):
+    """One file-manager delete, as the Admin Panel submits it.
+
+    The path is relative to the Media Root — the shape the manager's
+    browser navigates with; the manager owns the sandbox and refuses
+    escapes and Protected Paths.
+    """
+
+    path: str = Field(min_length=1)
+
+
+class FileRenameRequest(BaseModel):
+    """One file-manager rename: a path plus its new leaf name."""
+
+    path: str = Field(min_length=1)
+    new_name: str = Field(min_length=1)
+
+
+class FileMoveRequest(BaseModel):
+    """One file-manager move: a path plus the destination directory."""
+
+    path: str = Field(min_length=1)
+    target_dir: str = Field(min_length=1)
+
+
+class VpnConfigRequest(BaseModel):
+    """A VPN settings edit from the Admin Panel's VPN page.
+
+    Every field is optional: ``None`` leaves the stored value untouched, so
+    an edit that only changes the provider does not clobber the
+    credentials. The password is written to the settings file but never
+    returned to a Frontend or written to the ledger.
+    """
+
+    provider: str | None = None
+    openvpn_user: str | None = None
+    openvpn_password: str | None = None
+    server: str | None = None
+
+
 def format_size(size_bytes: int) -> str:
     """One human-readable size for quota messages."""
     size = float(size_bytes)
@@ -212,9 +254,10 @@ def create_app(
     config: Config | None = None,
     proxy_transport: Transport | None = None,
     docker_control: DockerControl | None = None,
+    vpn_control: VpnControl | None = None,
 ) -> FastAPI:
-    """Build the API app. ``config``, the manager transport and the docker
-    control are injectable for tests."""
+    """Build the API app. ``config``, the manager transport, the docker
+    control and the VPN control are injectable for tests."""
     config = config or load_config()
 
     @asynccontextmanager
@@ -345,6 +388,11 @@ def create_app(
 
     control = docker_control or DockerControl(config.compose_project)
     app.state.docker_control = control
+
+    vpn = vpn_control or VpnControl(
+        config.openvpn_dir, provider_fallback=config.vpn_provider
+    )
+    app.state.vpn_control = vpn
 
     def docker_or_502(action):
         """Run one docker action or report the socket as broken.
@@ -1206,6 +1254,180 @@ def create_app(
             "state": state,
             "disabled": db.service_disabled(config.db_path, name),
         }
+
+    @app.get("/admin/files")
+    async def admin_files(
+        path: str = Query(default=""), caller: Caller = Depends(require_admin)
+    ):
+        """One directory of the Media Root tree, through the manager.
+
+        The API never touches files (ADR-0001): it gates the Admin Role
+        and forwards the path; the manager owns the sandbox and the
+        Protected Path guards. A listing is a read, not a consequential
+        action — only the operations land in the Audit Ledger.
+        """
+        return forward_media_or_502("GET", "/files", params={"path": path})
+
+    def audit_file_op(caller: Caller, action: str, details: dict) -> None:
+        """Write the file operation's ledger row *before* forwarding.
+
+        The spec's decision of record: the API enforces the Admin role and
+        writes ledger rows before forwarding, so an operation is audited
+        even when the manager refuses it (Protected Path, sandbox) or is
+        unreachable. The row carries the op type and the source/target
+        paths — the manager's answer adds nothing the Admin needs.
+        """
+        db.record_audit(
+            config.db_path, actor=caller.username, action=action, details=details
+        )
+
+    @app.post("/admin/files/delete")
+    async def admin_files_delete(
+        request: FileDeleteRequest, caller: Caller = Depends(require_admin)
+    ):
+        """Hard-delete under the Media Root, through the manager — audited."""
+        audit_file_op(
+            caller, "file_delete", {"op": "delete", "source": request.path}
+        )
+        return forward_media_or_502(
+            "POST", "/files/delete", json={"path": request.path}
+        )
+
+    @app.post("/admin/files/rename")
+    async def admin_files_rename(
+        request: FileRenameRequest, caller: Caller = Depends(require_admin)
+    ):
+        """Rename a path's leaf, through the manager — audited."""
+        target = posixpath.join(
+            posixpath.dirname(request.path), request.new_name
+        )
+        audit_file_op(
+            caller,
+            "file_rename",
+            {"op": "rename", "source": request.path, "target": target},
+        )
+        return forward_media_or_502(
+            "POST",
+            "/files/rename",
+            json={"path": request.path, "new_name": request.new_name},
+        )
+
+    @app.post("/admin/files/move")
+    async def admin_files_move(
+        request: FileMoveRequest, caller: Caller = Depends(require_admin)
+    ):
+        """Move a path under another directory, through the manager — audited."""
+        target = posixpath.join(
+            request.target_dir, posixpath.basename(request.path)
+        )
+        audit_file_op(
+            caller,
+            "file_move",
+            {"op": "move", "source": request.path, "target": target},
+        )
+        return forward_media_or_502(
+            "POST",
+            "/files/move",
+            json={"path": request.path, "target_dir": request.target_dir},
+        )
+
+    # --- VPN (ticket #10) -----------------------------------------------------
+    #
+    # The settings live in the openvpn directory the gluetun Subsystem
+    # mounts (api.vpn); the panel restarts gluetun through the existing
+    # Subsystems endpoint to apply them.
+
+    def vpn_view(settings: VpnSettings) -> dict:
+        """The settings a Frontend may see — never the password."""
+        return {
+            "provider": settings.provider,
+            "openvpn_user": settings.openvpn_user,
+            "server": settings.server,
+        }
+
+    def valid_vpn_field(value: str | None, label: str) -> str | None:
+        """A provided-but-blank field is a mistake, not a clear."""
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise HTTPException(
+                status_code=400, detail=f"A {label} was required."
+            )
+        return cleaned
+
+    @app.get("/admin/vpn/status")
+    async def admin_vpn_status(caller: Caller = Depends(require_admin)):
+        """The VPN settings plus the current egress IP, for the VPN page.
+
+        The probe runs from the API's own network namespace — gluetun's,
+        shared by every Subsystem — so the answer is the egress the whole
+        stack exits through right now. A failed probe reads "unknown",
+        not an error.
+        """
+        settings = vpn.read_settings()
+        return {
+            **vpn_view(settings),
+            "egress_ip": vpn.egress_ip(),
+        }
+
+    @app.post("/admin/vpn/config")
+    async def admin_vpn_config(
+        request: VpnConfigRequest, caller: Caller = Depends(require_admin)
+    ):
+        """Edit the VPN provider, credentials and server — audited.
+
+        Writes the panel's settings file and, when the server changes, the
+        OpenVPN config's server lines. Applying the change needs a gluetun
+        restart; the panel invokes the existing Subsystems endpoint right
+        after this succeeds.
+        """
+        settings = vpn.update_settings(
+            provider=valid_vpn_field(request.provider, "provider"),
+            openvpn_user=valid_vpn_field(request.openvpn_user, "OpenVPN user"),
+            openvpn_password=valid_vpn_field(
+                request.openvpn_password, "OpenVPN password"
+            ),
+            server=valid_vpn_field(request.server, "server"),
+        )
+        # The password never reaches the ledger.
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="vpn_config_changed",
+            details={
+                "provider": settings.provider,
+                "openvpn_user": settings.openvpn_user,
+                "server": settings.server,
+            },
+        )
+        logger.info("VPN settings changed by %s.", caller.username)
+        return {
+            "message": "VPN settings saved. Restart gluetun to apply them.",
+            **vpn_view(settings),
+        }
+
+    @app.post("/admin/vpn/test")
+    async def admin_vpn_test(caller: Caller = Depends(require_admin)):
+        """Probe the public exit IP and report it — audited.
+
+        The Admin compares the answer against what their VPN provider's
+        exit should look like; the stack has no per-provider exit table to
+        check against (noted on the ticket).
+        """
+        settings = vpn.read_settings()
+        egress_ip = vpn.egress_ip()
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="vpn_test",
+            details={
+                "egress_ip": egress_ip,
+                "provider": settings.provider,
+                "server": settings.server,
+            },
+        )
+        return {"egress_ip": egress_ip, **vpn_view(settings)}
 
     return app
 
