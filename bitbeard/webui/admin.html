@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bitbeard Admin</title>
+    <link href="https://fonts.googleapis.com/css?family=Pirata+One|Roboto:400,700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto', Arial, sans-serif;
+            margin: 0;
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            min-height: 100vh;
+        }
+        header {
+            background: #0f172a;
+            color: #fbbf24;
+            padding: 24px 0 18px 0;
+            text-align: center;
+            box-shadow: 0 4px 24px #0004;
+        }
+        .logo {
+            font-family: 'Pirata One', cursive;
+            font-size: 2.6rem;
+            letter-spacing: 2px;
+            color: #fbbf24;
+            text-shadow: 2px 4px 0 #000a, 0 0 8px #fbbf2440;
+        }
+        .subtitle {
+            font-size: 1rem;
+            color: #f1f5f9;
+            letter-spacing: 1px;
+            margin-top: 0.2em;
+        }
+        main {
+            max-width: 960px;
+            margin: 28px auto 0 auto;
+            padding: 0 16px 40px 16px;
+        }
+        .userbar {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 12px;
+            color: #f1f5f9;
+            font-size: 0.95em;
+            margin-bottom: 14px;
+        }
+        .userbar button {
+            width: auto;
+            padding: 6px 16px;
+            font-size: 0.9em;
+            background: #334155;
+            color: #fbbf24;
+            border-radius: 5px;
+        }
+        nav {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+        }
+        nav button {
+            width: auto;
+            margin-top: 0;
+            padding: 8px 18px;
+            font-size: 0.98em;
+            background: #334155;
+            color: #fbbf24;
+            border-radius: 5px;
+        }
+        nav button.active {
+            background: #fbbf24;
+            color: #0f172a;
+        }
+        nav button:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .section {
+            background: #f1f5f9;
+            padding: 28px 24px 22px 24px;
+            margin-bottom: 36px;
+            border-radius: 14px;
+            box-shadow: 0 2px 16px #0002;
+            border: 1.5px solid #e2e8f0;
+        }
+        h2 {
+            color: #0f172a;
+            font-size: 1.35rem;
+            margin-bottom: 18px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        label {
+            display: block;
+            margin-top: 12px;
+            color: #334155;
+            font-weight: 500;
+        }
+        input, select, button {
+            margin-top: 7px;
+            padding: 10px 12px;
+            border-radius: 6px;
+            border: 1.5px solid #cbd5e1;
+            width: 100%;
+            font-size: 1rem;
+            font-family: inherit;
+            background: #fff;
+            box-sizing: border-box;
+        }
+        input:focus, select:focus {
+            border: 1.5px solid #fbbf24;
+            outline: none;
+        }
+        button {
+            width: auto;
+            background: linear-gradient(90deg, #fbbf24 60%, #f59e42 100%);
+            color: #0f172a;
+            border: none;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 1.05rem;
+            padding: 10px 28px;
+            margin-top: 18px;
+            box-shadow: 0 2px 8px #fbbf2420;
+        }
+        button:hover {
+            background: linear-gradient(90deg, #f59e42 60%, #fbbf24 100%);
+            color: #fff;
+        }
+        .filters {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+        .filters div {
+            flex: 1 1 160px;
+        }
+        .filters button {
+            flex: 0 0 auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 18px;
+            font-size: 0.95em;
+        }
+        th {
+            text-align: left;
+            color: #0f172a;
+            border-bottom: 2px solid #cbd5e1;
+            padding: 8px 10px;
+        }
+        td {
+            border-bottom: 1px solid #e2e8f0;
+            padding: 8px 10px;
+            vertical-align: top;
+            color: #334155;
+        }
+        td.actor, td.action {
+            white-space: nowrap;
+            font-weight: 600;
+        }
+        td.details {
+            word-break: break-all;
+            color: #64748b;
+        }
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 14px;
+        }
+        .pagination button {
+            min-width: 90px;
+            background: #334155;
+            color: #fbbf24;
+            font-size: 1em;
+            padding: 7px 18px;
+            border-radius: 5px;
+            margin: 0 4px;
+        }
+        .pagination button:hover {
+            background: #fbbf24;
+            color: #0f172a;
+        }
+        .pagination button:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        #page-info {
+            flex: 1;
+            text-align: center;
+            color: #0f172a;
+            font-weight: 500;
+        }
+        .success { color: #22c55e; font-weight: 600; }
+        .error { color: #ef4444; font-weight: 600; }
+        .hidden { display: none !important; }
+        .login-card {
+            max-width: 420px;
+            margin: 60px auto 0 auto;
+        }
+        @media (max-width: 700px) {
+            main { max-width: 98vw; }
+            .section { padding: 18px 6vw 16px 6vw; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">Bitbeard</div>
+        <div class="subtitle">Admin Panel</div>
+    </header>
+    <main>
+        <!-- Shown whenever the API refuses the Session (not logged in /
+             expired) or the caller holds a non-Admin Role. -->
+        <div class="section login-card" id="login-view">
+            <h2>Log in</h2>
+            <form id="login-form" autocomplete="off">
+                <label for="login-username">Username:</label>
+                <input type="text" id="login-username" required autocomplete="username">
+                <label for="login-password">Password:</label>
+                <input type="password" id="login-password" required autocomplete="current-password">
+                <button type="submit">Log in</button>
+                <div id="login-message"></div>
+            </form>
+        </div>
+
+        <div id="app-view" class="hidden">
+            <div class="userbar">
+                <span id="userbar-info"></span>
+                <button id="logout-btn">Log out</button>
+            </div>
+
+            <!-- One button per Admin Panel page; pages beyond the Audit
+                 Ledger land with their own tickets (#8, #9, #10). -->
+            <nav id="nav">
+                <button data-page="audit" class="active">Audit Ledger</button>
+                <button data-page="users" disabled title="Coming with ticket #8">Users</button>
+                <button data-page="subsystems" disabled title="Coming with ticket #9">Subsystems</button>
+                <button data-page="files" disabled title="Coming with ticket #10">Files</button>
+                <button data-page="vpn" disabled title="Coming with ticket #10">VPN</button>
+            </nav>
+
+            <div class="section" id="page-audit">
+                <h2>Audit Ledger</h2>
+                <form id="audit-filters" autocomplete="off">
+                    <div class="filters">
+                        <div>
+                            <label for="filter-actor">Actor:</label>
+                            <input type="text" id="filter-actor" placeholder="e.g. admin or discord:name">
+                        </div>
+                        <div>
+                            <label for="filter-action">Action:</label>
+                            <input type="text" id="filter-action" placeholder="e.g. search, login">
+                        </div>
+                        <div>
+                            <label for="filter-start">From:</label>
+                            <input type="date" id="filter-start">
+                        </div>
+                        <div>
+                            <label for="filter-end">To:</label>
+                            <input type="date" id="filter-end">
+                        </div>
+                        <button type="submit">Apply filters</button>
+                        <button type="button" id="clear-filters">Clear</button>
+                    </div>
+                </form>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Actor</th>
+                            <th>Action</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="audit-rows"></tbody>
+                </table>
+                <div class="pagination">
+                    <button id="prev-page">&lt; Prev</button>
+                    <span id="page-info"></span>
+                    <button id="next-page">Next &gt;</button>
+                </div>
+            </div>
+        </div>
+    </main>
+    <script>
+        // --- API base is fixed to same-origin reverse proxy ---
+        const API_BASE = "/api";
+        const PAGE_SIZE = 50;
+
+        const loginView = document.getElementById('login-view');
+        const appView = document.getElementById('app-view');
+
+        function showLogin() {
+            appView.classList.add('hidden');
+            loginView.classList.remove('hidden');
+        }
+
+        async function showApp() {
+            try {
+                const resp = await fetch(`${API_BASE}/auth/me`);
+                if (!resp.ok) {
+                    showLogin();
+                    return;
+                }
+                const me = await resp.json();
+                if (me.role !== 'admin') {
+                    // The Role is enforced by the API; the panel only
+                    // explains a refusal it receives.
+                    document.getElementById('login-message').innerHTML =
+                        `<span class="error">Admin Role required.</span>`;
+                    showLogin();
+                    return;
+                }
+                document.getElementById('userbar-info').textContent =
+                    `Logged in as ${me.username} (${me.role})`;
+                loginView.classList.add('hidden');
+                appView.classList.remove('hidden');
+                loadLedger();
+            } catch (err) {
+                showLogin();
+            }
+        }
+
+        // Route any 401/403 from a data call back to the login page.
+        function handleAuthFailure(resp) {
+            if (resp.status === 401 || resp.status === 403) {
+                showLogin();
+                return true;
+            }
+            return false;
+        }
+
+        function esc(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        document.getElementById('login-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const msgDiv = document.getElementById('login-message');
+            msgDiv.textContent = "Logging in...";
+            try {
+                const resp = await fetch(`${API_BASE}/auth/login`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        username: document.getElementById('login-username').value,
+                        password: document.getElementById('login-password').value
+                    })
+                });
+                if (resp.ok) {
+                    msgDiv.textContent = "";
+                    showApp();
+                } else {
+                    const data = await resp.json().catch(() => ({}));
+                    msgDiv.innerHTML = `<span class="error">${esc(data.detail || "Login failed")}</span>`;
+                }
+            } catch (err) {
+                msgDiv.innerHTML = `<span class="error">Error: ${err}</span>`;
+            }
+        });
+
+        document.getElementById('logout-btn').addEventListener('click', async function() {
+            await fetch(`${API_BASE}/auth/logout`, { method: "POST" }).catch(() => {});
+            showLogin();
+        });
+
+        // --- Audit Ledger ---------------------------------------------
+        let offset = 0;
+        let total = 0;
+
+        function readFilters() {
+            return {
+                actor: document.getElementById('filter-actor').value.trim(),
+                action: document.getElementById('filter-action').value.trim(),
+                start: document.getElementById('filter-start').value,
+                end: document.getElementById('filter-end').value,
+            };
+        }
+
+        async function loadLedger() {
+            const filters = readFilters();
+            const params = new URLSearchParams();
+            if (filters.actor) params.set('actor', filters.actor);
+            if (filters.action) params.set('action', filters.action);
+            if (filters.start) params.set('start', filters.start);
+            if (filters.end) params.set('end', filters.end);
+            params.set('limit', PAGE_SIZE);
+            params.set('offset', offset);
+
+            const rows = document.getElementById('audit-rows');
+            try {
+                const resp = await fetch(`${API_BASE}/admin/audit?${params}`);
+                if (handleAuthFailure(resp)) return;
+                const data = await resp.json();
+                if (!resp.ok) {
+                    rows.innerHTML = `<tr><td colspan="4"><span class="error">${esc(data.detail || "Failed to load the ledger")}</span></td></tr>`;
+                    return;
+                }
+                total = data.total;
+                rows.innerHTML = data.entries.map(entry => `
+                    <tr>
+                        <td>${esc(entry.ts)}</td>
+                        <td class="actor">${esc(entry.actor)}</td>
+                        <td class="action">${esc(entry.action)}</td>
+                        <td class="details">${esc(entry.details ? JSON.stringify(entry.details) : "")}</td>
+                    </tr>
+                `).join('');
+                renderPagination();
+            } catch (err) {
+                rows.innerHTML = `<tr><td colspan="4"><span class="error">Error: ${esc(err)}</span></td></tr>`;
+            }
+        }
+
+        function renderPagination() {
+            const prevBtn = document.getElementById('prev-page');
+            const nextBtn = document.getElementById('next-page');
+            const pageInfo = document.getElementById('page-info');
+            prevBtn.disabled = offset <= 0;
+            nextBtn.disabled = offset + PAGE_SIZE >= total;
+            if (total === 0) {
+                pageInfo.textContent = "No entries match.";
+            } else {
+                const first = offset + 1;
+                const last = Math.min(offset + PAGE_SIZE, total);
+                pageInfo.textContent = `Entries ${first}–${last} of ${total}`;
+            }
+        }
+
+        document.getElementById('audit-filters').addEventListener('submit', function(e) {
+            e.preventDefault();
+            offset = 0;
+            loadLedger();
+        });
+
+        document.getElementById('clear-filters').addEventListener('click', function() {
+            document.getElementById('filter-actor').value = "";
+            document.getElementById('filter-action').value = "";
+            document.getElementById('filter-start').value = "";
+            document.getElementById('filter-end').value = "";
+            offset = 0;
+            loadLedger();
+        });
+
+        document.getElementById('prev-page').addEventListener('click', function() {
+            if (offset > 0) {
+                offset = Math.max(0, offset - PAGE_SIZE);
+                loadLedger();
+            }
+        });
+
+        document.getElementById('next-page').addEventListener('click', function() {
+            if (offset + PAGE_SIZE < total) {
+                offset += PAGE_SIZE;
+                loadLedger();
+            }
+        });
+
+        // Initial load: prove the Admin Session before revealing the panel.
+        showApp();
+    </script>
+</body>
+</html>

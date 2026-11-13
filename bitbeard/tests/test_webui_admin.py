@@ -1,0 +1,56 @@
+"""Tests that the Admin Panel is served at /admin from the Webui container.
+
+The Webui is a dumb nginx static/proxy layer (ADR-0002): the Admin Panel is
+the single-file ``admin.html`` SPA served at ``/admin``, proxying the API
+under the same origin so the Session cookie flows. There is no Python here
+to boot, so these tests pin the nginx config and the shipped files.
+"""
+
+from pathlib import Path
+
+WEBUI_DIR = Path(__file__).resolve().parent.parent / "webui"
+
+
+def read(name):
+    return (WEBUI_DIR / name).read_text(encoding="utf-8")
+
+
+def test_the_admin_panel_spa_exists_and_targets_the_ledger_api():
+    html = read("admin.html")
+
+    assert 'id="login-view"' in html
+    # The filterable ledger view: Actor, action and date filters.
+    assert 'id="filter-actor"' in html
+    assert 'id="filter-action"' in html
+    assert 'id="filter-start"' in html
+    assert 'id="filter-end"' in html
+    assert "/admin/audit" in html
+
+
+def test_the_admin_panel_enforces_the_admin_role_before_revealing_pages():
+    html = read("admin.html")
+
+    # The SPA checks the Role the API reports and refuses non-Admins.
+    assert "role !== 'admin'" in html
+
+
+def test_nginx_serves_admin_html_at_admin():
+    conf = read("default.conf")
+
+    assert "location /admin" in conf
+    assert "admin.html" in conf
+
+
+def test_the_webui_image_ships_the_admin_panel():
+    dockerfile = read("Dockerfile")
+
+    assert "COPY admin.html" in dockerfile
+
+
+def test_the_admin_panel_keeps_nginx_a_dumb_static_proxy_layer():
+    conf = read("default.conf")
+
+    # Same session flow as the Webui: the API is proxied under /api/.
+    assert "location /api/" in conf
+    # No basic auth anywhere: the API owns authentication.
+    assert "auth_basic" not in conf

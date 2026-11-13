@@ -11,6 +11,7 @@ two writers coexist without one blocking the other for long.
 
 import json
 import os
+import re
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
@@ -151,6 +152,22 @@ def get_account(path: str, account_id: int) -> sqlite3.Row | None:
         ).fetchone()
 
 
+def find_account_by_discord(
+    path: str, discord_id: str
+) -> sqlite3.Row | None:
+    """Look up an Account by linked Discord ID.
+
+    This is the Bot's attribution hop (ADR-0002): a bot-proxied call names
+    the acting Discord user, and the API resolves it to the linked Account
+    for the Audit Ledger. Unlinked users have no row here — their actions
+    are attributed to ``discord:<name>`` instead.
+    """
+    with closing(connect(path)) as connection:
+        return connection.execute(
+            "SELECT * FROM users WHERE discord_id = ?", (discord_id,)
+        ).fetchone()
+
+
 def update_password(path: str, account_id: int, password: str) -> bool:
     """Replace an Account's password. Returns True when the Account exists.
 
@@ -178,3 +195,82 @@ def record_audit(path: str, actor: str, action: str, details: Any = None) -> Non
             ),
         )
         connection.commit()
+
+
+def _start_bound(start: str) -> str:
+    """Make an inclusive lower bound for ``ts`` (string-compares ISO)."""
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", start):
+        return start + "T00:00:00"
+    return start
+
+
+def _end_bound(end: str) -> str:
+    """Make an inclusive upper bound for ``ts`` (string-compares ISO).
+
+    A date-only end must cover the whole day, and the rows carry a
+    ``+00:00`` suffix after the seconds, so the bound needs to out-sort
+    every timestamp within that day.
+    """
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", end):
+        return end + "T23:59:59.999999"
+    return end
+
+
+def query_audit(
+    path: str,
+    *,
+    actor: str | None = None,
+    action: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> dict:
+    """Read the Audit Ledger, filtered, newest first, with pagination.
+
+    ``actor`` and ``action`` match exactly (the Admin Panel offers these as
+    pickers); ``start``/``end`` are inclusive ISO dates or datetimes in UTC,
+    the one clock the ledger writes. Returns the page plus the unpaginated
+    total so a view can page through it.
+    """
+    clauses: list[str] = []
+    params: list[Any] = []
+    if actor:
+        clauses.append("actor = ?")
+        params.append(actor)
+    if action:
+        clauses.append("action = ?")
+        params.append(action)
+    if start:
+        clauses.append("ts >= ?")
+        params.append(_start_bound(start))
+    if end:
+        clauses.append("ts <= ?")
+        params.append(_end_bound(end))
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+
+    with closing(connect(path)) as connection:
+        total = connection.execute(
+            f"SELECT COUNT(*) FROM audit{where}", params
+        ).fetchone()[0]
+        rows = connection.execute(
+            f"""
+            SELECT id, ts, actor, action, details
+            FROM audit{where}
+            ORDER BY id DESC
+            LIMIT ? OFFSET ?
+            """,
+            [*params, limit, offset],
+        ).fetchall()
+
+    entries = [
+        {
+            "id": row["id"],
+            "ts": row["ts"],
+            "actor": row["actor"],
+            "action": row["action"],
+            "details": json.loads(row["details"]) if row["details"] else None,
+        }
+        for row in rows
+    ]
+    return {"entries": entries, "total": total, "limit": limit, "offset": offset}

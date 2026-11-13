@@ -8,19 +8,23 @@ Download Manager.
 Authentication lives here at the boundary (ADR-0002): everything except
 ``/health``, the ``/auth`` endpoints and the token-authed ``/internal/events``
 requires a valid Session cookie, and admin endpoints additionally require the
-Admin Role. User-facing media work (Search, Download submission, progress,
-cancel) is proxied to the Download Manager with the shared SERVICE_TOKEN and
-the acting Account as a trusted header — the API never touches qBittorrent
-or Jackett itself.
+Admin Role. Frontend-service callers (the Bot) take the same user endpoints
+with the shared SERVICE_TOKEN plus the acting Discord user's headers — the
+API resolves a linked Account for attribution, or records the Actor as
+``discord:<name>`` when the Discord user is unlinked. User-facing media work
+(Search, Download submission, progress, cancel) is proxied to the Download
+Manager with the shared SERVICE_TOKEN and the acting Account as a trusted
+header — the API never touches qBittorrent or Jackett itself.
 """
 
 import logging
+import secrets
 import sqlite3
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Literal
 
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from shared import db
@@ -36,16 +40,33 @@ logger = logging.getLogger(__name__)
 #: The HTTP-only cookie that carries the Session token.
 COOKIE_NAME = "bitbeard_session"
 
+#: Trusted headers (ADR-0002): the acting Discord user on a bot-proxied
+#: request — the ID to resolve against linked Accounts, and the display
+#: name used for ``discord:<name>`` attribution when it is unlinked.
+DISCORD_ID_HEADER = "X-Bitbeard-Discord"
+DISCORD_NAME_HEADER = "X-Bitbeard-Discord-Name"
+
 #: Actor recorded for Lifecycle Events that carry no acting Account.
 MANAGER_ACTOR = "download-manager"
 
 
 @dataclass(frozen=True)
 class Caller:
-    """The Account behind a request and the Session token it presented."""
+    """The Actor behind a request, resolved at the API boundary.
+
+    A Session caller is the Account itself. A Frontend-service caller (the
+    Bot acting for a Discord user) resolves to the linked Account when
+    there is one, or becomes a synthetic User-role Actor named
+    ``discord:<name>`` when the Discord user is unlinked.
+    """
 
     token: str
-    account: sqlite3.Row
+    account_id: int | None
+    username: str
+    role: str
+    discord_id: str | None = None
+    #: How the Caller arrived: "session" (cookie) or "discord" (the Bot).
+    via: str = "session"
 
 
 class LoginRequest(BaseModel):
@@ -116,11 +137,69 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
         account = db.get_account(config.db_path, session.account_id)
         if account is None or account["disabled"]:
             raise HTTPException(status_code=401, detail="Not authenticated.")
-        return Caller(token=session.token, account=account)
+        return Caller(
+            token=session.token,
+            account_id=account["id"],
+            username=account["username"],
+            role=account["role"],
+            discord_id=account["discord_id"],
+        )
+
+    def require_caller(
+        session_token: str | None = Cookie(default=None, alias=COOKIE_NAME),
+        authorization: str | None = Header(default=None),
+        discord_id: str | None = Header(default=None, alias=DISCORD_ID_HEADER),
+        discord_name: str | None = Header(
+            default=None, alias=DISCORD_NAME_HEADER
+        ),
+    ) -> Caller:
+        """Resolve the calling Actor from either Frontend authentication.
+
+        Browsers arrive with a Session cookie; the Bot arrives with the
+        shared SERVICE_TOKEN plus the acting Discord user's ID (and, when
+        it has one, display name) in the trusted headers. A linked Discord
+        ID resolves to that Account — including its Role; an unlinked one
+        becomes a synthetic ``discord:<name>`` Actor that can use the
+        Webui-level endpoints but never the Admin Panel.
+        """
+        if authorization is not None:
+            if not secrets.compare_digest(
+                authorization, f"Bearer {config.service_token}"
+            ):
+                raise HTTPException(status_code=401, detail="Not authenticated.")
+            if not discord_id:
+                raise HTTPException(
+                    status_code=401,
+                    detail="The acting Discord user must ride along.",
+                )
+            account = db.find_account_by_discord(config.db_path, discord_id)
+            if account is not None:
+                if account["disabled"]:
+                    raise HTTPException(
+                        status_code=401, detail="Not authenticated."
+                    )
+                return Caller(
+                    token="",
+                    account_id=account["id"],
+                    username=account["username"],
+                    role=account["role"],
+                    discord_id=account["discord_id"],
+                    via="discord",
+                )
+            name = discord_name or discord_id
+            return Caller(
+                token="",
+                account_id=None,
+                username=f"discord:{name}",
+                role="user",
+                discord_id=discord_id,
+                via="discord",
+            )
+        return require_session(session_token)
 
     def require_admin(caller: Caller = Depends(require_session)) -> Caller:
         """Refuse non-Admin Accounts at the boundary."""
-        if caller.account["role"] != "admin":
+        if caller.role != "admin":
             raise HTTPException(status_code=403, detail="Admin Role required.")
         return caller
 
@@ -151,59 +230,77 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
             )
         return response.payload
 
+    def actor_forward(caller: Caller) -> dict:
+        """Trusted-header identity for the manager hop (ADR-0002).
+
+        A Session caller forwards its Account name and linked Discord ID.
+        The Bot acting for a linked Account forwards that Account; for an
+        unlinked Discord user there is no Account, so the lifecycle events
+        the manager emits are attributed to the same ``discord:<name>``
+        Actor the Audit Ledger records.
+        """
+        if caller.via == "discord" and caller.account_id is None:
+            return {"account": None, "discord": caller.username}
+        return {"account": caller.username, "discord": caller.discord_id}
+
     @app.get("/search")
-    async def search(q: str = Query(...), caller: Caller = Depends(require_session)):
-        """Search all Indexers, through the manager, as this Account.
+    async def search(q: str = Query(...), caller: Caller = Depends(require_caller)):
+        """Search all Indexers, through the manager, as this Actor.
 
         The query and the Actor are written to the Audit Ledger here, once,
         at the boundary: the manager neither audits nor learns who to
         attribute the Search to beyond the trusted header.
         """
         payload = forward_or_502(
-            "GET", "/search", params={"q": q}, account=caller.account["username"]
+            "GET", "/search", params={"q": q}, **actor_forward(caller)
         )
+        details = {"query": q}
+        if caller.via == "discord":
+            details["via"] = "discord"
         db.record_audit(
             config.db_path,
-            actor=caller.account["username"],
+            actor=caller.username,
             action="search",
-            details={"query": q},
+            details=details,
         )
         return payload
 
     @app.post("/download")
     async def download(
-        request: DownloadRequest, caller: Caller = Depends(require_session)
+        request: DownloadRequest, caller: Caller = Depends(require_caller)
     ):
-        """Submit a Download through the manager on behalf of this Account."""
+        """Submit a Download through the manager on behalf of this Actor."""
         payload = forward_or_502(
             "POST",
             "/download",
             json={"magnet_link": request.magnet_link, "category": request.category},
-            account=caller.account["username"],
-            discord=caller.account["discord_id"],
+            **actor_forward(caller),
         )
         db.record_audit(
             config.db_path,
-            actor=caller.account["username"],
+            actor=caller.username,
             action="download_submit",
-            details={"category": request.category, "via": "webui"},
+            details={
+                "category": request.category,
+                "via": "discord" if caller.via == "discord" else "webui",
+            },
         )
         return payload
 
     @app.get("/progress")
-    async def progress(caller: Caller = Depends(require_session)):
+    async def progress(caller: Caller = Depends(require_caller)):
         """In-flight Download progress, as the manager sees it."""
         return forward_or_502("GET", "/progress")
 
     @app.post("/cancel")
-    async def cancel(caller: Caller = Depends(require_session)):
+    async def cancel(caller: Caller = Depends(require_caller)):
         """Cancel Downloads through the manager and record the Actor."""
         payload = forward_or_502(
-            "POST", "/cancel", account=caller.account["username"]
+            "POST", "/cancel", **actor_forward(caller)
         )
         db.record_audit(
             config.db_path,
-            actor=caller.account["username"],
+            actor=caller.username,
             action="download_cancel",
             details=payload,
         )
@@ -273,17 +370,14 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
             path="/",
         )
         db.record_audit(
-            config.db_path, actor=account["username"], action="login"
+            config.db_path, actor=account["username"], action="login", details={}
         )
         return {"role": account["role"]}
 
     @app.get("/auth/me")
     async def me(caller: Caller = Depends(require_session)):
         """Echo the calling Account, so Frontends can restore their view."""
-        return {
-            "username": caller.account["username"],
-            "role": caller.account["role"],
-        }
+        return {"username": caller.username, "role": caller.role}
 
     @app.post("/auth/logout")
     async def logout(response: Response, caller: Caller = Depends(require_session)):
@@ -302,27 +396,62 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
         the Account is revoked so a changed password cuts off old browsers
         while keeping the browser that made the change logged in.
         """
-        if not verify_password(
-            request.current_password, caller.account["password_hash"]
-        ):
+        account = db.get_account(config.db_path, caller.account_id)
+        if account is None:
+            raise HTTPException(status_code=401, detail="Not authenticated.")
+        if not verify_password(request.current_password, account["password_hash"]):
             raise HTTPException(
                 status_code=400, detail="Current password is incorrect."
             )
-        db.update_password(config.db_path, caller.account["id"], request.new_password)
+        db.update_password(config.db_path, caller.account_id, request.new_password)
         app.state.sessions.revoke_all_for_account(
-            caller.account["id"], keep=caller.token
+            caller.account_id, keep=caller.token
         )
         db.record_audit(
             config.db_path,
-            actor=caller.account["username"],
+            actor=caller.username,
             action="password_changed",
+            details={},
         )
         return {"message": "Password updated."}
 
     @app.get("/admin/ping")
     async def admin_ping(caller: Caller = Depends(require_admin)):
         """Admin-role gate proof; real admin endpoints come with the panel."""
-        return {"message": "pong", "admin": caller.account["username"]}
+        return {"message": "pong", "admin": caller.username}
+
+    @app.get("/admin/audit")
+    async def admin_audit(
+        caller: Caller = Depends(require_admin),
+        actor: str | None = Query(default=None),
+        action: str | None = Query(default=None),
+        start: str | None = Query(
+            default=None,
+            description="Inclusive lower bound (ISO date or datetime, UTC).",
+        ),
+        end: str | None = Query(
+            default=None,
+            description="Inclusive upper bound (ISO date or datetime, UTC).",
+        ),
+        limit: int = Query(default=100, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ):
+        """Read the Audit Ledger, filtered, newest first.
+
+        The Admin Panel's ledger page filters by Actor, action and date;
+        ``actor`` and ``action`` match exactly, the date bounds are
+        inclusive. Pages carry the unpaginated total so the view can show
+        "entries X–Y of Z".
+        """
+        return db.query_audit(
+            config.db_path,
+            actor=actor,
+            action=action,
+            start=start,
+            end=end,
+            limit=limit,
+            offset=offset,
+        )
 
     return app
 
