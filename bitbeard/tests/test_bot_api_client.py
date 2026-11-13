@@ -56,27 +56,52 @@ def test_search_carries_the_service_token_and_discord_identity(client, transport
     assert call["headers"][DISCORD_NAME_HEADER] == "Salty"
 
 
-def test_submit_cancel_and_progress_relay_the_actor(client, transport):
+def test_submit_carries_the_torznab_size_and_title(client, transport):
     client.submit(
         "magnet:?xt=urn:btih:x", "Movie",
         discord_id="123456789", discord_name="Salty",
+        size_bytes=1610612736, title="Some Movie 2020",
     )
-    client.cancel(discord_id="123456789", discord_name="Salty")
-    client.progress(discord_id="123456789", discord_name="Salty")
+
+    call = transport.calls[0]
+    assert call["method"] == "POST"
+    assert call["url"] == "http://api.test/download"
+    assert call["json"] == {
+        "magnet_link": "magnet:?xt=urn:btih:x",
+        "category": "Movie",
+        "size_bytes": 1610612736,
+        "title": "Some Movie 2020",
+    }
+    assert call["headers"]["Authorization"] == "Bearer service-token"
+    assert call["headers"][DISCORD_ID_HEADER] == "123456789"
+    assert call["headers"][DISCORD_NAME_HEADER] == "Salty"
+
+
+def test_a_bare_magnet_submits_with_an_unknown_size_and_title(client, transport):
+    client.submit(
+        "magnet:?xt=urn:btih:x", "Other", discord_id="123456789"
+    )
+
+    call = transport.calls[0]
+    assert call["json"]["size_bytes"] == 0
+    assert call["json"]["title"] is None
+    assert DISCORD_NAME_HEADER not in call["headers"]
+
+
+def test_media_and_media_cancel_relay_the_actor(client, transport):
+    client.media(discord_id="123456789", discord_name="Salty")
+    client.media_cancel(42, discord_id="123456789", discord_name="Salty")
 
     methods = [call["method"] for call in transport.calls]
     urls = [call["url"] for call in transport.calls]
-    assert methods == ["POST", "POST", "GET"]
+    assert methods == ["GET", "POST"]
     assert urls == [
-        "http://api.test/download", "http://api.test/cancel",
-        "http://api.test/progress",
+        "http://api.test/media", "http://api.test/media/42/cancel",
     ]
-    assert transport.calls[0]["json"] == {
-        "magnet_link": "magnet:?xt=urn:btih:x", "category": "Movie",
-    }
     for call in transport.calls:
         assert call["headers"]["Authorization"] == "Bearer service-token"
         assert call["headers"][DISCORD_ID_HEADER] == "123456789"
+        assert call["headers"][DISCORD_NAME_HEADER] == "Salty"
 
 
 def test_an_unknown_display_name_simply_omits_the_name_header(client, transport):

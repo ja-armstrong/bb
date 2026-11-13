@@ -12,6 +12,7 @@ two writers coexist without one blocking the other for long.
 import json
 import os
 import re
+import secrets
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
@@ -22,6 +23,10 @@ from .security import hash_password
 #: Sentinel in ``users.quota_bytes`` meaning the Account has no cap at all.
 #: ``NULL`` means "use the API's global default"; any other value is the cap.
 QUOTA_UNLIMITED = -1
+
+#: Link Code alphabet: no easily-confused glyphs (0/O, 1/I/L), so a code
+#: read off the Webui can be typed back without ambiguity.
+LINK_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -64,11 +69,19 @@ CREATE TABLE IF NOT EXISTS downloads (
     completed_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS link_codes (
+    code TEXT PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    discord_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id);
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(ts);
 CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit(actor);
 CREATE INDEX IF NOT EXISTS idx_downloads_account ON downloads(account);
 CREATE INDEX IF NOT EXISTS idx_downloads_status ON downloads(status);
+CREATE INDEX IF NOT EXISTS idx_link_codes_discord ON link_codes(discord_id);
 """
 
 
@@ -184,6 +197,92 @@ def update_password(path: str, account_id: int, password: str) -> bool:
         )
         connection.commit()
     return cursor.rowcount > 0
+
+
+# --- Link Codes (Discord linking, ADR-0002) --------------------------------
+#
+# A one-time Link Code, generated in the Webui, binds an Account to a
+# Discord ID. The code alone never links anything: it sits pending until
+# the Bot relays an interaction from the claimed Discord ID — the API
+# consumes it on the next bot-proxied call — so the binding is proven by
+# the Discord user actually showing up, not just by whoever holds the code.
+
+
+def create_link_code(path: str, account_id: int, discord_id: str) -> str:
+    """Issue a one-time Link Code binding an Account to a Discord ID.
+
+    Generating a new code retires the Account's previous pending one, so
+    exactly one code is ever live per Account. Returns the code for the
+    Webui to show once; the store holds the pending binding.
+    """
+    code = "".join(
+        secrets.choice(LINK_CODE_ALPHABET) for _ in range(8)
+    )
+    with closing(connect(path)) as connection:
+        connection.execute(
+            "DELETE FROM link_codes WHERE account_id = ?", (account_id,)
+        )
+        connection.execute(
+            """
+            INSERT INTO link_codes (code, account_id, discord_id, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (code, account_id, discord_id, utc_now()),
+        )
+        connection.commit()
+    return code
+
+
+def pending_link_code(path: str, account_id: int) -> sqlite3.Row | None:
+    """The Account's live Link Code, for the Webui's pending display."""
+    with closing(connect(path)) as connection:
+        return connection.execute(
+            """
+            SELECT code, discord_id, created_at FROM link_codes
+            WHERE account_id = ?
+            ORDER BY created_at DESC, rowid DESC LIMIT 1
+            """,
+            (account_id,),
+        ).fetchone()
+
+
+def consume_pending_link(path: str, discord_id: str) -> sqlite3.Row | None:
+    """Verify and spend the pending Link Code for this Discord ID.
+
+    Called on every bot-proxied request with the acting Discord user's
+    ID: when a pending code claims that ID, the Account is bound to it
+    and the Account row is returned. One-time use — the code is spent
+    whether or not the bind succeeds — and refused when the Discord ID
+    is already linked to another Account (the code is still spent, so a
+    stale claim cannot linger).
+    """
+    with closing(connect(path)) as connection:
+        row = connection.execute(
+            """
+            SELECT code, account_id FROM link_codes
+            WHERE discord_id = ?
+            ORDER BY created_at DESC, rowid DESC LIMIT 1
+            """,
+            (discord_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        connection.execute(
+            "DELETE FROM link_codes WHERE code = ?", (row["code"],)
+        )
+        clash = connection.execute(
+            "SELECT id FROM users WHERE discord_id = ? AND id != ?",
+            (discord_id, row["account_id"]),
+        ).fetchone()
+        if clash is not None:
+            connection.commit()
+            return None
+        connection.execute(
+            "UPDATE users SET discord_id = ? WHERE id = ?",
+            (discord_id, row["account_id"]),
+        )
+        connection.commit()
+    return get_account(path, row["account_id"])
 
 
 def record_audit(path: str, actor: str, action: str, details: Any = None) -> None:

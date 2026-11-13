@@ -38,8 +38,26 @@ and Bot stay internal to the shared gluetun network namespace.
 ## First boot
 
 The API creates `data/bitbeard.db` on the shared volume with the `users`, `sessions`,
-`audit` and `downloads` tables. When no Account exists yet, it seeds the bootstrap
-Admin from `ADMIN_USER` / `ADMIN_PASSWORD`. Later restarts leave the store untouched.
+`audit`, `downloads` and `link_codes` tables. When no Account exists yet, it seeds the
+bootstrap Admin from `ADMIN_USER` / `ADMIN_PASSWORD`. Later restarts leave the store
+untouched.
+
+## Using the Bot
+
+The Bot is a thin Frontend: it authenticates to the API as a Service Account and
+relays the acting Discord user on every call. Send it a message in Discord:
+
+- **any text** — a Search through the API; results page 25 at a time
+  (Prev/Next), and picking one asks for a Category before submitting
+- **a pasted `magnet:?` link** — asks for a Category, then submits
+- **`progress`** — your In-flight Downloads with live progress and ETA
+- **`cancel`** — pick one of your In-flight Downloads to cancel
+  (cancelling is scoped to your own Downloads)
+
+Quota rejections from the API are relayed verbatim to the channel. To link your
+Discord ID to your Account, generate a Link Code in the Webui ("Link Discord",
+with your Discord user ID), then send any message to the Bot from Discord — the
+next interaction verifies and spends the code.
 
 ## Development
 

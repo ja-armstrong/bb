@@ -106,6 +106,12 @@ class MediaMoveRequest(BaseModel):
     category: str = Field(min_length=1)
 
 
+class LinkCodeRequest(BaseModel):
+    #: The Discord ID the Account claims. The binding is not made here —
+    #: it is verified when the Bot next relays this Discord user's ID.
+    discord_id: str = Field(min_length=1)
+
+
 class LifecycleEvent(BaseModel):
     """One Lifecycle Event as the Download Manager emits it."""
 
@@ -251,6 +257,24 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
                 raise HTTPException(
                     status_code=401,
                     detail="The acting Discord user must ride along.",
+                )
+            # Link Code verification (ADR-0002): a pending code claiming
+            # this Discord ID is spent by the interaction itself — the
+            # "next bot interaction" that proves the user controls the
+            # ID. From here on the normal resolution sees the freshly
+            # linked Account.
+            linked = db.consume_pending_link(config.db_path, discord_id)
+            if linked is not None:
+                db.record_audit(
+                    config.db_path,
+                    actor=linked["username"],
+                    action="discord_linked",
+                    details={"discord_id": discord_id},
+                )
+                logger.info(
+                    "Link Code verified: Account '%s' bound to Discord %s.",
+                    linked["username"],
+                    discord_id,
                 )
             account = db.find_account_by_discord(config.db_path, discord_id)
             if account is not None:
@@ -734,6 +758,41 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
             details={},
         )
         return {"message": "Password updated."}
+
+    @app.post("/link/code")
+    async def create_link_code(
+        request: LinkCodeRequest, caller: Caller = Depends(require_session)
+    ):
+        """Issue a one-time Link Code binding this Account to a Discord ID.
+
+        The Webui generates it and shows it once; the binding is only
+        verified when the Bot next relays that Discord user's ID (the
+        Frontend-service path consumes the pending code there), so a
+        leaked code cannot attach someone else's Discord identity.
+        Generating a new code retires the Account's previous pending one.
+        Audited like every consequential action.
+        """
+        discord_id = request.discord_id.strip()
+        if not discord_id:
+            raise HTTPException(
+                status_code=400, detail="A Discord ID is required."
+            )
+        held = db.find_account_by_discord(config.db_path, discord_id)
+        if held is not None and held["id"] != caller.account_id:
+            raise HTTPException(
+                status_code=400,
+                detail="That Discord ID is already linked to another Account.",
+            )
+        code = db.create_link_code(
+            config.db_path, caller.account_id, discord_id
+        )
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="link_code_generated",
+            details={"discord_id": discord_id},
+        )
+        return {"code": code, "discord_id": discord_id}
 
     @app.get("/admin/ping")
     async def admin_ping(caller: Caller = Depends(require_admin)):

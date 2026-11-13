@@ -300,6 +300,15 @@
                 <div id="password-message"></div>
             </form>
         </div>
+        <div class="section">
+            <h2>Link Discord</h2>
+            <form id="link-form" autocomplete="off">
+                <label for="link-discord-id">Your Discord user ID:</label>
+                <input type="text" id="link-discord-id" required placeholder="e.g. 123456789012345678">
+                <button type="submit">Generate Link Code</button>
+                <div id="link-message"></div>
+            </form>
+        </div>
         </div>
     </main>
     <script>
@@ -422,6 +431,35 @@
                     document.getElementById('password-form').reset();
                 } else {
                     msgDiv.innerHTML = `<span class="error">${data.detail || "Failed to change password"}</span>`;
+                }
+            } catch (err) {
+                msgDiv.innerHTML = `<span class="error">Error: ${err}</span>`;
+            }
+        });
+
+        // --- Link Discord ------------------------------------------------
+        // A one-time Link Code binds this Account to the Discord ID
+        // entered here. The code is only claimed — the binding itself is
+        // verified when that Discord user next interacts with the Bot,
+        // so a stolen code alone cannot hijack the link.
+        document.getElementById('link-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const msgDiv = document.getElementById('link-message');
+            msgDiv.textContent = "Generating...";
+            try {
+                const resp = await fetch(`${API_BASE}/link/code`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        discord_id: document.getElementById('link-discord-id').value.trim()
+                    })
+                });
+                if (handleAuthFailure(resp)) return;
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok) {
+                    msgDiv.innerHTML = `<span class="success">Link Code <strong>${data.code}</strong> generated for Discord ID ${data.discord_id}. Send any message to the Bot from Discord to finish linking.</span>`;
+                } else {
+                    msgDiv.innerHTML = `<span class="error">${data.detail || "Failed to generate Link Code"}</span>`;
                 }
             } catch (err) {
                 msgDiv.innerHTML = `<span class="error">Error: ${err}</span>`;

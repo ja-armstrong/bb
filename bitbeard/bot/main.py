@@ -2,9 +2,11 @@
 
 The Bot is a Frontend: it authenticates to the API as a Service Account and
 relays the acting Discord user. It runs the Discord client (when a token is
-configured) alongside a small HTTP listener that receives the Completion
-Event webhooks the Download Manager mirrors to it (ADR-0001), announcing
-them to the configured Discord channel.
+configured) whose message flows — search, magnet submission, cancel and
+progress — all go through the API (``bot.discord_front``, ADR-0002),
+alongside a small HTTP listener that receives the Completion Event webhooks
+the Download Manager mirrors to it (ADR-0001), announcing them to the
+configured Discord channel.
 """
 
 import asyncio
@@ -18,6 +20,8 @@ from pydantic import BaseModel
 
 from shared.service_auth import require_service_token
 
+from . import discord_front
+from .api_client import ApiClient
 from .config import Config, load_config
 from .notifier import CompletionNotifier, NullNotifier
 
@@ -38,11 +42,20 @@ class CompletionEvent(BaseModel):
     download_id: int | None = None
 
 
-def _build_discord_client() -> discord.Client:
-    """Build the Discord client the Bot runs when a token is configured."""
+def _build_discord_client(config: Config) -> discord.Client:
+    """Build the Discord client the Bot runs when a token is configured.
+
+    The message flows are the Bot's Frontend surface: they relay the
+    acting Discord user to the API through an ApiClient built from the
+    same config, so search, submit, cancel and progress all work
+    through the API (ADR-0002).
+    """
     intents = discord.Intents.default()
     intents.message_content = True
     client = discord.Client(intents=intents)
+    discord_front.attach(
+        client, ApiClient(config.api_url, config.service_token)
+    )
 
     @client.event
     async def on_ready():
@@ -72,7 +85,7 @@ def create_app(config: Config | None = None, notifier=None) -> FastAPI:
     discord_client = None
     if notifier is None:
         if config.discord_bot_token and config.announce_channel_id:
-            discord_client = _build_discord_client()
+            discord_client = _build_discord_client(config)
             notifier = CompletionNotifier(
                 discord_client, config.announce_channel_id
             )
