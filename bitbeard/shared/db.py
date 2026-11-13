@@ -199,6 +199,97 @@ def update_password(path: str, account_id: int, password: str) -> bool:
     return cursor.rowcount > 0
 
 
+# --- Account management (Admin Panel) ---------------------------------------
+#
+# Accounts are created and managed by an Admin from the Admin Panel (the
+# bootstrap Admin arrives from env instead). These helpers own the row
+# work; the API decides what is allowed and writes the ledger rows.
+
+
+def create_account(
+    path: str,
+    *,
+    username: str,
+    password: str,
+    role: str,
+    quota_bytes: int | None = None,
+) -> int | None:
+    """Create an Account with a hashed password; returns its id.
+
+    ``quota_bytes`` is the Storage Quota override — ``None`` for the
+    global default, ``QUOTA_UNLIMITED`` for no cap. A duplicate username
+    returns None: the UNIQUE constraint is the guard of record, so a
+    race between the caller's pre-check and the insert cannot double-
+    create.
+    """
+    with closing(connect(path)) as connection:
+        try:
+            cursor = connection.execute(
+                """
+                INSERT INTO users (username, password_hash, role,
+                                   quota_bytes, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (username, hash_password(password), role, quota_bytes, utc_now()),
+            )
+            connection.commit()
+        except sqlite3.IntegrityError:
+            return None
+    return cursor.lastrowid
+
+
+def list_accounts(path: str) -> list[sqlite3.Row]:
+    """Every Account, oldest first, for the Admin Panel's Users page."""
+    with closing(connect(path)) as connection:
+        return connection.execute("SELECT * FROM users ORDER BY id").fetchall()
+
+
+def count_enabled_admins(path: str) -> int:
+    """How many enabled Admin Accounts exist — the last-admin guard."""
+    with closing(connect(path)) as connection:
+        return connection.execute(
+            "SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0"
+        ).fetchone()[0]
+
+
+def set_disabled(path: str, account_id: int, disabled: bool) -> bool:
+    """Enable or disable an Account. Returns True when the Account exists.
+
+    Callers decide which Sessions survive; disabling an Account already
+    refuses every request at the API boundary.
+    """
+    with closing(connect(path)) as connection:
+        cursor = connection.execute(
+            "UPDATE users SET disabled = ? WHERE id = ?",
+            (int(disabled), account_id),
+        )
+        connection.commit()
+    return cursor.rowcount > 0
+
+
+def revoke_sessions_for_account(
+    path: str, account_id: int, *, keep_token: str | None = None
+) -> int:
+    """Revoke every Session of an Account; returns how many died.
+
+    ``keep_token`` spares one Session — the self-service password change
+    keeps the browser that made the change. Admin actions (reset,
+    disable, revoke) leave nothing alive.
+    """
+    with closing(connect(path)) as connection:
+        if keep_token is None:
+            cursor = connection.execute(
+                "DELETE FROM sessions WHERE account_id = ?", (account_id,)
+            )
+        else:
+            cursor = connection.execute(
+                "DELETE FROM sessions WHERE account_id = ? AND token != ?",
+                (account_id, keep_token),
+            )
+        connection.commit()
+    return cursor.rowcount
+
+
 # --- Link Codes (Discord linking, ADR-0002) --------------------------------
 #
 # A one-time Link Code, generated in the Webui, binds an Account to a

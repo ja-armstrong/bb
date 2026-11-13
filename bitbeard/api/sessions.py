@@ -117,19 +117,12 @@ class SessionStore:
     def revoke_all_for_account(self, account_id: int, *, keep: str | None = None) -> int:
         """Revoke every Session of ``account_id`` except ``keep``.
 
-        Used when an Account's password changes: sessions the holder did not
-        create (e.g. another browser) must not survive the credential change.
-        Returns the number of revoked Sessions.
+        The store work lives in ``shared.db`` (the sessions table is store
+        territory); this is the Session-shaped entry point the API calls.
+        Used when an Account's password changes: sessions the holder did
+        not create (e.g. another browser) must not survive the credential
+        change. Returns the number of revoked Sessions.
         """
-        with closing(db.connect(self.db_path)) as connection:
-            if keep is None:
-                cursor = connection.execute(
-                    "DELETE FROM sessions WHERE account_id = ?", (account_id,)
-                )
-            else:
-                cursor = connection.execute(
-                    "DELETE FROM sessions WHERE account_id = ? AND token != ?",
-                    (account_id, keep),
-                )
-            connection.commit()
-        return cursor.rowcount
+        return db.revoke_sessions_for_account(
+            self.db_path, account_id, keep_token=keep
+        )

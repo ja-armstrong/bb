@@ -134,6 +134,28 @@ class QuotaAssignment(BaseModel):
     quota_bytes: int | None = Field(default=None, ge=db.QUOTA_UNLIMITED)
 
 
+class AccountCreation(BaseModel):
+    """A new Account as the Admin Panel submits it.
+
+    The Role is mandatory — there is no sensible default to hide behind.
+    The Storage Quota follows the same encoding as ``QuotaAssignment``:
+    ``None`` rides the global default, the ``QUOTA_UNLIMITED`` sentinel
+    removes the cap, any other value is the cap in bytes.
+    """
+
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=8)
+    role: Literal["admin", "user"]
+    quota_bytes: int | None = Field(default=None, ge=db.QUOTA_UNLIMITED)
+
+
+class PasswordReset(BaseModel):
+    """The new password an Admin sets on an Account (no email in this
+    stack, so the panel hands it to the Admin out of band)."""
+
+    new_password: str = Field(min_length=8)
+
+
 def format_size(size_bytes: int) -> str:
     """One human-readable size for quota messages."""
     size = float(size_bytes)
@@ -798,6 +820,214 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
     async def admin_ping(caller: Caller = Depends(require_admin)):
         """Admin-role gate proof; real admin endpoints come with the panel."""
         return {"message": "pong", "admin": caller.username}
+
+    @app.get("/admin/users")
+    async def admin_list_users(caller: Caller = Depends(require_admin)):
+        """Every Account, for the Admin Panel's Users page.
+
+        Each Account carries its Role, disabled flag and Discord link
+        state — the linked ID when bound, otherwise the live pending Link
+        Code and the ID it claims — plus the Storage Quota shaped by the
+        same ``quota_view`` the enforcement pre-check and the Webui read,
+        so display and enforcement can never disagree. The global default
+        rides along so the panel can label a "default" cap with the real
+        number.
+        """
+        users = []
+        for account in db.list_accounts(config.db_path):
+            pending = db.pending_link_code(config.db_path, account["id"])
+            users.append(
+                {
+                    "id": account["id"],
+                    "username": account["username"],
+                    "role": account["role"],
+                    "disabled": bool(account["disabled"]),
+                    "discord_id": account["discord_id"],
+                    "link_code": dict(pending) if pending is not None else None,
+                    "quota": quota_view(account, config),
+                }
+            )
+        return {"users": users, "default_quota_bytes": config.default_quota_bytes}
+
+    @app.post("/admin/users")
+    async def admin_create_user(
+        request: AccountCreation, caller: Caller = Depends(require_admin)
+    ):
+        """Create an Account with its Role and Storage Quota — audited.
+
+        Usernames are unique: the duplicate is refused before anything is
+        written, so no half-made Account lingers, and the store's UNIQUE
+        constraint backs the pre-check up. The password is hashed through
+        ``shared.security`` and never reaches the ledger.
+        """
+        username = request.username.strip()
+        if not username:
+            raise HTTPException(status_code=400, detail="A username is required.")
+        if db.find_account(config.db_path, username) is not None:
+            raise HTTPException(
+                status_code=400, detail="That username is already taken."
+            )
+        account_id = db.create_account(
+            config.db_path,
+            username=username,
+            password=request.password,
+            role=request.role,
+            quota_bytes=request.quota_bytes,
+        )
+        if account_id is None:
+            raise HTTPException(
+                status_code=400, detail="That username is already taken."
+            )
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="account_created",
+            details={
+                "account_id": account_id,
+                "username": username,
+                "role": request.role,
+                "quota_bytes": request.quota_bytes,
+            },
+        )
+        logger.info("Account '%s' created by %s.", username, caller.username)
+        account = db.get_account(config.db_path, account_id)
+        return {
+            "id": account_id,
+            "username": username,
+            "role": request.role,
+            "quota": quota_view(account, config),
+        }
+
+    @app.post("/admin/users/{account_id}/reset")
+    async def admin_reset_password(
+        account_id: int,
+        request: PasswordReset,
+        caller: Caller = Depends(require_admin),
+    ):
+        """Reset an Account's password — an audited Admin action.
+
+        Every Session of the Account is revoked with it: whoever held the
+        old credential must lose the browser they never logged out of.
+        The new password itself never reaches the ledger.
+        """
+        account = db.get_account(config.db_path, account_id)
+        if account is None:
+            raise HTTPException(status_code=404, detail="No such Account.")
+        db.update_password(config.db_path, account_id, request.new_password)
+        revoked = app.state.sessions.revoke_all_for_account(account_id)
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="password_reset",
+            details={
+                "account_id": account_id,
+                "username": account["username"],
+                "sessions_revoked": revoked,
+            },
+        )
+        return {
+            "message": f"Password reset for {account['username']}.",
+            "sessions_revoked": revoked,
+        }
+
+    @app.post("/admin/users/{account_id}/disable")
+    async def admin_disable_user(
+        account_id: int, caller: Caller = Depends(require_admin)
+    ):
+        """Disable an Account and revoke its Sessions — audited.
+
+        Guard rail (the smallest sane one): the last enabled Admin cannot
+        be disabled — which also covers an Admin disabling themselves when
+        they are the only one. With a second enabled Admin remaining,
+        self-disabling is survivable (that Admin re-enables), so it is
+        allowed. Disabling already refuses every request at the boundary;
+        the revocation kills live Sessions in the same motion.
+        """
+        account = db.get_account(config.db_path, account_id)
+        if account is None:
+            raise HTTPException(status_code=404, detail="No such Account.")
+        if account["disabled"]:
+            raise HTTPException(
+                status_code=400, detail="Account is already disabled."
+            )
+        if (
+            account["role"] == "admin"
+            and db.count_enabled_admins(config.db_path) <= 1
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Refusing to disable the last enabled Admin.",
+            )
+        db.set_disabled(config.db_path, account_id, True)
+        revoked = app.state.sessions.revoke_all_for_account(account_id)
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="account_disabled",
+            details={
+                "account_id": account_id,
+                "username": account["username"],
+                "sessions_revoked": revoked,
+            },
+        )
+        return {
+            "username": account["username"],
+            "disabled": True,
+            "sessions_revoked": revoked,
+        }
+
+    @app.post("/admin/users/{account_id}/enable")
+    async def admin_enable_user(
+        account_id: int, caller: Caller = Depends(require_admin)
+    ):
+        """Re-enable a disabled Account — audited."""
+        account = db.get_account(config.db_path, account_id)
+        if account is None:
+            raise HTTPException(status_code=404, detail="No such Account.")
+        if not account["disabled"]:
+            raise HTTPException(
+                status_code=400, detail="Account is not disabled."
+            )
+        db.set_disabled(config.db_path, account_id, False)
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="account_enabled",
+            details={
+                "account_id": account_id,
+                "username": account["username"],
+            },
+        )
+        return {"username": account["username"], "disabled": False}
+
+    @app.post("/admin/users/{account_id}/revoke_sessions")
+    async def admin_revoke_sessions(
+        account_id: int, caller: Caller = Depends(require_admin)
+    ):
+        """Revoke every live Session of an Account, server-side — audited.
+
+        The Account itself is untouched: it can simply log in again. This
+        is the "kick everyone out now" lever for a compromised credential
+        or a login shared too widely.
+        """
+        account = db.get_account(config.db_path, account_id)
+        if account is None:
+            raise HTTPException(status_code=404, detail="No such Account.")
+        revoked = app.state.sessions.revoke_all_for_account(account_id)
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="sessions_revoked",
+            details={
+                "account_id": account_id,
+                "username": account["username"],
+                "revoked": revoked,
+            },
+        )
+        return {
+            "username": account["username"],
+            "sessions_revoked": revoked,
+        }
 
     @app.post("/admin/users/{account_id}/quota")
     async def admin_set_quota(

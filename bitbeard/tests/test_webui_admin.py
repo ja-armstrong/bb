@@ -34,6 +34,20 @@ def test_the_admin_panel_enforces_the_admin_role_before_revealing_pages():
     assert "role !== 'admin'" in html
 
 
+def test_the_admin_panel_ships_the_users_page():
+    html = read("admin.html")
+
+    # The Users page: the create form, the per-Account action buttons and
+    # the quota controls against the Account endpoints of ticket #8.
+    assert 'id="page-users"' in html
+    assert 'id="user-create-form"' in html
+    assert 'id="user-rows"' in html
+    assert "/admin/users" in html
+    assert "revoke_sessions" in html
+    # The Users nav button is live, no longer a placeholder.
+    assert '<button data-page="users" disabled' not in html
+
+
 def test_nginx_serves_admin_html_at_admin():
     conf = read("default.conf")
 
