@@ -1,6 +1,10 @@
-"""Import-safety tests: the app module must import cleanly, without touching
-the network, both as a package member and as a script (the Dockerfile runs
-``python bitbeard.py`` with flat siblings on sys.path)."""
+"""Import-safety tests.
+
+Every service module must import cleanly without environment variables or
+network access, so the Docker images can start before configuration is read.
+The API in particular must not pull in qBittorrent, Jackett search, or
+requests: media work belongs to the Download Manager.
+"""
 import subprocess
 import sys
 from pathlib import Path
@@ -8,24 +12,34 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_bitbeard_module_imports_as_package_member():
-    import bitbeard.bitbeard  # noqa: F401  (must not raise)
-
-
-def test_bitbeard_module_imports_as_script():
-    """Simulate script mode: put the bitbeard/ dir itself on sys.path, so the
-    module is imported as top-level ``bitbeard`` with flat siblings — the
-    fallback import branch must work."""
-    result = subprocess.run(
-        [
-            sys.executable, "-c",
-            "import sys; sys.path.insert(0, 'bitbeard'); import bitbeard; "
-            "print(bitbeard.__file__)",
-        ],
+def run_python(code):
+    return subprocess.run(
+        [sys.executable, "-c", code],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         timeout=60,
     )
+
+
+def test_all_service_modules_import_without_environment():
+    result = run_python(
+        "import api.main, manager.main, bot.main, shared.db, shared.security; "
+        "print('ok')"
+    )
+
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().endswith("bitbeard.py")
+    assert result.stdout.strip() == "ok"
+
+
+def test_api_does_not_import_qbittorrent_or_search():
+    result = run_python(
+        "import sys, api.main; "
+        "assert 'qbittorrentapi' not in sys.modules, 'qbittorrentapi imported'; "
+        "assert 'requests' not in sys.modules, 'requests imported'; "
+        "assert 'manager.search' not in sys.modules, 'search imported'; "
+        "print('clean')"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "clean"

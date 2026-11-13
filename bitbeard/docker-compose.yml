@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   gluetun:
     image: qmcgaw/gluetun
@@ -106,30 +104,80 @@ services:
       - 32400:32400
     restart: unless-stopped
 
-  bitbeard:
-    build: ./bitbeard
-    container_name: bitbeard
-    network_mode: "service:gluetun"
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: api
     depends_on:
-      - jackett
-      - qbittorrent
+      gluetun:
+        condition: service_started
+    network_mode: "service:gluetun"
     environment:
       - TZ=${TZ}
+      - SERVICE_TOKEN=${SERVICE_TOKEN}
+      - ADMIN_USER=${ADMIN_USER}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - DEFAULT_QUOTA_GB=${DEFAULT_QUOTA_GB}
+      - DATABASE_PATH=${DATABASE_PATH}
+    volumes:
+      - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  manager:
+    build:
+      context: .
+      dockerfile: manager/Dockerfile
+    container_name: manager
+    depends_on:
+      gluetun:
+        condition: service_started
+      qbittorrent:
+        condition: service_started
+      jackett:
+        condition: service_started
+    network_mode: "service:gluetun"
+    environment:
+      - TZ=${TZ}
+      - SERVICE_TOKEN=${SERVICE_TOKEN}
       - QBITTORRENT_USERNAME=${QBITTORRENT_USERNAME}
       - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD}
       - BASE_DOWNLOAD_DIR=${BASE_DOWNLOAD_DIR}
-      - DISCORD_ANNOUNCE_CHANNEL_ID=${DISCORD_ANNOUNCE_CHANNEL_ID}
-      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
       - JACKETT_API_KEY=${JACKETT_API_KEY}
     volumes:
-      - ./bitbeard:/app
+      - ./data:/data
+      - ./media:/media
+    restart: unless-stopped
+
+  bot:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    container_name: bot
+    depends_on:
+      gluetun:
+        condition: service_started
+      api:
+        condition: service_started
+    network_mode: "service:gluetun"
+    environment:
+      - TZ=${TZ}
+      - DISCORD_ANNOUNCE_CHANNEL_ID=${DISCORD_ANNOUNCE_CHANNEL_ID}
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - API_URL=${API_URL}
+      - SERVICE_TOKEN=${SERVICE_TOKEN}
     restart: unless-stopped
 
   webui:
     build: ./webui
     container_name: webui
+    depends_on:
+      gluetun:
+        condition: service_started
+      api:
+        condition: service_started
     network_mode: "service:gluetun"
     environment:
-      USERNAME: ${WEBUI_USER}
-      PASSWORD: ${WEBUI_PASSWORD}
+      - TZ=${TZ}
     restart: unless-stopped

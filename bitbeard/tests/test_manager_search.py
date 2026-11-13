@@ -1,9 +1,9 @@
-"""Tests for the deep Search module (bitbeard.search)."""
+"""Tests for the deep Search module (manager.search)."""
 import urllib.parse
 from xml.sax.saxutils import escape
 
-from bitbeard.config import Config
-from bitbeard.search import SearchResult, search
+from manager.config import Config
+from manager.search import SearchResult, search
 
 
 TORZNAB_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -47,9 +47,8 @@ def make_config():
         qbit_username="admin",
         qbit_password="hunter2",
         base_download_dir="/media/downloads",
-        announce_channel_id=123456789,
-        discord_bot_token="discord-token",
         jackett_api_key="jackett-key",
+        service_token="service-token",
     )
 
 

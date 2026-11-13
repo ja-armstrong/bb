@@ -1,0 +1,15 @@
+.git
+.env
+data
+media
+plex
+jackett
+qbittorrent
+openvpn
+defaults
+__pycache__
+**/__pycache__
+*.pyc
+*.log
+.pytest_cache
+tests

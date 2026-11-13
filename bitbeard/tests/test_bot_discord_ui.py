@@ -1,10 +1,10 @@
-"""Tests for the reusable category-select view (bitbeard.discord_ui)."""
+"""Tests for the reusable category-select view (bot.discord_ui)."""
 import asyncio
 
 import discord
 from discord.ui import Select
 
-from bitbeard.discord_ui import CategorySelectView
+from bot.discord_ui import CategorySelectView
 
 
 class FakeResponse:

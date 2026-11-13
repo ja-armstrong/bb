@@ -1,9 +1,9 @@
-"""Tests for the deep Download module (bitbeard.downloads)."""
+"""Tests for the deep Download module (manager.downloads)."""
 import asyncio
 import os
 
-from bitbeard.config import Config
-from bitbeard.downloads import DownloadManager, format_eta
+from manager.config import Config
+from manager.downloads import DownloadManager, format_eta
 
 
 class FakeTorrent:
@@ -77,9 +77,8 @@ def make_config():
         qbit_username="admin",
         qbit_password="hunter2",
         base_download_dir="/media/downloads",
-        announce_channel_id=123456789,
-        discord_bot_token="discord-token",
         jackett_api_key="jackett-key",
+        service_token="service-token",
     )
 
 
