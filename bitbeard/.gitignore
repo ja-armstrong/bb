@@ -1,0 +1,10 @@
+/.env
+/plex
+/media
+*.log
+bitbeard/*.log
+**/.htpasswd
+/jackett
+/qbittorrent
+__pycache__/
+*.pyc
