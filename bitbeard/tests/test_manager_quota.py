@@ -767,7 +767,10 @@ def test_delete_endpoint_hard_deletes_a_finished_download(tmp_path):
     write_files(config.base_download_dir, "Movie", str(record.id))
 
     with TestClient(app) as client:
-        response = client.post(f"/media/{record.id}/delete", headers=AUTH)
+        response = client.post(
+            f"/media/{record.id}/delete",
+            headers={**AUTH, "X-Bitbeard-Account-Id": str(account_id)},
+        )
 
     assert response.status_code == 200
     assert response.json() == {"deleted": record.id, "name": "Some Movie"}
@@ -782,17 +785,18 @@ def test_delete_endpoint_reports_unknown_and_active_downloads(tmp_path):
     ledger = app.state.quota_ledger
     db.initialize(config.db_path)
     record = ledger.open_download(
-        account_id=None, discord_name=None, title=None,
+        account_id=None, discord_name="discord:salty", title=None,
         category="Movie", size_bytes=0,
     )
     # The torrent is still in qBittorrent under the record's save path.
     torrent = FakeTorrent("h1", "Test Torrent")
     torrent.save_path = record.save_path
     app.state.qbt_client.torrents.append(torrent)
+    identity = {**AUTH, "X-Bitbeard-Discord": "discord:salty"}
 
     with TestClient(app) as client:
-        missing = client.post("/media/999/delete", headers=AUTH)
-        active = client.post(f"/media/{record.id}/delete", headers=AUTH)
+        missing = client.post("/media/999/delete", headers=identity)
+        active = client.post(f"/media/{record.id}/delete", headers=identity)
 
     assert missing.status_code == 404
     assert active.status_code == 409

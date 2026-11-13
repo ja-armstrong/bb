@@ -23,8 +23,11 @@ import logging
 import os
 import shutil
 from contextlib import closing
+from typing import Any
 
 from shared import db
+
+from .downloads import format_eta
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +47,18 @@ class ActiveTorrentError(Exception):
 
 class OutsideMediaRootError(Exception):
     """A Download's save path escapes the Media Root (hard sandbox)."""
+
+
+class NotCompletedError(Exception):
+    """Only completed Downloads can be renamed or moved.
+
+    An In-flight Download's torrent still owns its directory in
+    qBittorrent; the user cancels it instead.
+    """
+
+
+class PathTakenError(Exception):
+    """The rename/move target already exists on disk or in a record."""
 
 
 class DownloadRecord:
@@ -200,6 +215,99 @@ class QuotaLedger:
         logger.info("Download %s deleted; quota freed.", download_id)
         return dict(row)
 
+    # --- User-facing media operations (ticket #6's My Media page) ----------
+
+    def list_downloads(
+        self,
+        *,
+        account_id: int | None = None,
+        discord_name: str | None = None,
+    ) -> list[dict]:
+        """One Actor's Downloads for the My Media page, newest first.
+
+        In-flight rows carry the torrent's live progress, matched by save
+        path — the one thing qBittorrent and the record share (``None``
+        while the torrent has not surfaced yet). Cancelled rows are not
+        media — their partial files carry no quota — so they are not
+        listed. Without an Actor to scope to, nothing is listed.
+        """
+        rows = db.downloads_for_owner(
+            self._db_path, account_id=account_id, discord_name=discord_name
+        )
+        active = self._active_torrents_by_path()
+        entries = []
+        for row in rows:
+            if row["status"] not in ("in_flight", "completed"):
+                continue
+            entry = {
+                "id": row["id"],
+                "name": row["name"],
+                "category": row["category"],
+                "size_bytes": row["size_bytes"],
+                "status": row["status"],
+                "submitted_at": row["submitted_at"],
+                "completed_at": row["completed_at"],
+            }
+            if row["status"] == "in_flight":
+                torrent = active.get(os.path.normpath(row["save_path"]))
+                entry["progress"] = (
+                    f"{torrent.progress * 100:.2f}%" if torrent else None
+                )
+                entry["eta"] = format_eta(torrent.eta) if torrent else None
+            entries.append(entry)
+        return entries
+
+    def rename_download(self, download_id: int, new_name: str) -> dict | None:
+        """Rename a completed Download: the record's name and its directory.
+
+        The directory keeps its place under the Category; its leaf becomes
+        the new name. Returns the updated record, or ``None`` when no such
+        Download exists. Refused while the torrent is still an Active
+        Torrent (Protected Path) and for names or paths that escape the
+        Media Root.
+        """
+        row = self._row(download_id)
+        if row is None or not row["save_path"]:
+            return None
+        self._refuse_active_torrent(row["save_path"])
+        if row["status"] != "completed":
+            raise NotCompletedError(
+                f"Download {download_id} is not completed yet; "
+                "cancel it instead of renaming it."
+            )
+        target = os.path.join(
+            os.path.dirname(os.path.normpath(row["save_path"])), new_name
+        )
+        self._relocate(row, target)
+        db.update_download_name(self._db_path, download_id, new_name)
+        logger.info("Download %s renamed to %s.", download_id, new_name)
+        return dict(self._row(download_id))
+
+    def move_download(self, download_id: int, category: str) -> dict | None:
+        """Move a completed Download to another Category: record + disk.
+
+        The directory keeps its leaf name; the files move under the new
+        Category's directory and the record follows. Quota is unchanged —
+        the same bytes, just shelved elsewhere. Guards as for rename.
+        """
+        row = self._row(download_id)
+        if row is None or not row["save_path"]:
+            return None
+        self._refuse_active_torrent(row["save_path"])
+        if row["status"] != "completed":
+            raise NotCompletedError(
+                f"Download {download_id} is not completed yet; "
+                "cancel it instead of moving it."
+            )
+        leaf = os.path.basename(os.path.normpath(row["save_path"]))
+        target = os.path.join(self._base_download_dir, category, leaf)
+        self._relocate(row, target)
+        db.update_download_category(self._db_path, download_id, category)
+        logger.info(
+            "Download %s moved to the %s Category.", download_id, category
+        )
+        return dict(self._row(download_id))
+
     # --- Reconciliation ----------------------------------------------------
 
     def reconcile(self) -> dict:
@@ -285,37 +393,73 @@ class QuotaLedger:
     def _row(self, download_id: int):
         return db.get_download(self._db_path, download_id)
 
-    def _active_save_paths(self) -> set[str]:
-        """Save paths qBittorrent currently holds (Active Torrents)."""
+    def _active_torrents_by_path(self) -> dict[str, Any]:
+        """Active Torrents keyed by their normalized save path."""
         if self._qbt is None:
-            return set()
+            return {}
         return {
-            os.path.normpath(torrent.save_path)
+            os.path.normpath(torrent.save_path): torrent
             for torrent in self._qbt.torrents_info()
             if getattr(torrent, "save_path", None)
         }
+
+    def _active_save_paths(self) -> set[str]:
+        """Save paths qBittorrent currently holds (Active Torrents)."""
+        return set(self._active_torrents_by_path())
 
     def _refuse_active_torrent(self, save_path: str) -> None:
         """Protected Path guard: refuse while the torrent is still Active."""
         if self._qbt is None:
             return
-        target = os.path.normpath(save_path)
-        for torrent in self._qbt.torrents_info():
-            torrent_path = getattr(torrent, "save_path", None)
-            if torrent_path and os.path.normpath(torrent_path) == target:
-                raise ActiveTorrentError(
-                    f"{save_path} belongs to an Active Torrent; "
-                    "cancel it instead of deleting it."
-                )
+        torrent = self._active_torrents_by_path().get(
+            os.path.normpath(save_path)
+        )
+        if torrent is not None:
+            raise ActiveTorrentError(
+                f"{save_path} belongs to an Active Torrent; its paths are "
+                "Protected — cancel the torrent first."
+            )
 
-    def _remove_files(self, save_path: str) -> None:
-        """Remove a Download's files, sandboxed to the Media Root."""
+    def _relocate(self, row, target: str) -> None:
+        """Move a Download's directory and repoint its record's save path.
+
+        Both paths are sandbox-checked, the target must be free of any
+        other Download's record and of anything on disk, and quota never
+        changes — the same bytes, a different address.
+        """
+        source = row["save_path"]
+        self._ensure_inside_media_root(source)
+        self._ensure_inside_media_root(target)
+        if os.path.normpath(source) == os.path.normpath(target):
+            return  # the "rename" is the record's name only
+        occupant = db.get_download_by_save_path(self._db_path, target)
+        if occupant is not None and occupant["id"] != row["id"]:
+            raise PathTakenError(
+                f"{target} is already the save path of another Download."
+            )
+        if os.path.exists(target):
+            raise PathTakenError(f"{target} already exists on the Media Root.")
+        if not os.path.exists(source):
+            # The files are already gone (out-of-band change); the record
+            # simply repoints.
+            db.set_download_save_path(self._db_path, row["id"], target)
+            return
+        shutil.move(source, target)
+        db.set_download_save_path(self._db_path, row["id"], target)
+
+    def _ensure_inside_media_root(self, save_path: str) -> None:
+        """Hard sandbox: no file operation may escape the Media Root."""
         root = os.path.realpath(self._base_download_dir)
         target = os.path.realpath(save_path)
         if target != root and not target.startswith(root + os.sep):
             raise OutsideMediaRootError(
                 f"{save_path} escapes the Media Root."
             )
+
+    def _remove_files(self, save_path: str) -> None:
+        """Remove a Download's files, sandboxed to the Media Root."""
+        self._ensure_inside_media_root(save_path)
+        target = os.path.realpath(save_path)
         if os.path.isdir(target):
             shutil.rmtree(target)
         elif os.path.exists(target):

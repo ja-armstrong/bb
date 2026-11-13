@@ -8,8 +8,10 @@ Ownership and Storage Quota live here too (the manager owns the
 ``downloads`` records and the per-Account usage counter): every submission
 opens a record, the torrent lifecycle keeps it current, a periodic
 reconciliation job recomputes the counters from the records vs on-disk
-state, and ``POST /media/{id}/delete`` hard-deletes a finished Download
-(files, record, quota) for the user-facing endpoint of ticket #6.
+state, and the ``/media`` endpoints are the user-facing My Media operations
+of ticket #6 — list, delete (files, record, quota), rename, move to another
+Category, and a Download-level cancel — each scoped to the trusted Actor
+the API names and guarded against Active Torrents and Media Root escapes.
 """
 
 import asyncio
@@ -29,10 +31,20 @@ from shared.service_auth import require_service_token
 from .config import Config, load_config
 from .downloads import DownloadManager
 from .events import WebhookAnnouncer
-from .quota import ActiveTorrentError, OutsideMediaRootError, QuotaLedger
+from .quota import (
+    ActiveTorrentError,
+    NotCompletedError,
+    OutsideMediaRootError,
+    PathTakenError,
+    QuotaLedger,
+)
 from .search import search
 
 logger = logging.getLogger(__name__)
+
+#: The Categories a Download can live under (the GLOSSARY's three), the
+#: subdirectories of the Media Root a move can target.
+CATEGORIES = ("Movie", "TV Show", "Other")
 
 
 class TorrentRequest(BaseModel):
@@ -43,6 +55,16 @@ class TorrentRequest(BaseModel):
     size_bytes: int = 0
     #: The Torznab title, when known; qBittorrent's real name replaces it.
     title: str | None = None
+
+
+class MediaRenameRequest(BaseModel):
+    #: The Download's new name — also the directory's new leaf.
+    name: str
+
+
+class MediaMoveRequest(BaseModel):
+    #: The Category to move the Download into.
+    category: str
 
 
 #: Trusted headers the API sets on proxied calls (ADR-0002): the acting
@@ -77,6 +99,21 @@ def make_announcer(config: Config) -> WebhookAnnouncer:
         service_token=config.service_token,
         bot_base_url=config.bot_url,
     )
+
+
+def validate_download_name(name: str) -> str:
+    """Reject names that could not name a directory on the Media Root."""
+    cleaned = (name or "").strip()
+    if (
+        not cleaned
+        or cleaned in (".", "..")
+        or any(bad in cleaned for bad in ("/", "\\", "\x00"))
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="That name cannot be used for a Download.",
+        )
+    return cleaned
 
 
 async def _run_reconciler(ledger: QuotaLedger, interval: float) -> None:
@@ -182,23 +219,181 @@ def create_app(
     async def api_cancel():
         return {"cancelled": app.state.download_manager.cancel_all()}
 
-    @app.post("/media/{download_id}/delete", dependencies=service_auth)
-    async def api_media_delete(download_id: int):
-        """Hard-delete a finished Download: files, record, quota.
+    # --- My Media (ticket #6): Download-level user operations -------------
+    #
+    # The trusted headers name the Actor (ADR-0002); ownership is enforced
+    # here as defense in depth behind the API's boundary check, and fails
+    # closed: a call that names no Actor operates on nothing.
 
-        This is the manager-side operation ticket #6's user-facing delete
-        will call; a still-Active Torrent's paths are Protected and a
-        sandbox-breaking path is refused.
+    def require_owned_download(
+        download_id: int,
+        *,
+        account_id: int | None,
+        discord_name: str | None,
+    ):
+        """Resolve the Download a media operation targets, and make sure
+        the trusted Actor owns it.
+
+        Users operate only on their own Downloads. There is no admin
+        passthrough on these user endpoints — an Admin manages other
+        Actors' media through the Admin Panel's file manager.
         """
+        row = db.get_download(config.db_path, download_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="No such Download.")
+        if account_id is None and discord_name is None:
+            raise HTTPException(
+                status_code=403, detail="No trusted Actor on the request."
+            )
+        if account_id is not None:
+            owner_mismatch = row["account"] != account_id
+        else:
+            owner_mismatch = row["discord_name"] != discord_name
+        if owner_mismatch:
+            raise HTTPException(
+                status_code=403,
+                detail="This Download belongs to another Actor.",
+            )
+        return row
+
+    @contextlib.contextmanager
+    def media_guards():
+        """Map the ledger's media refusals onto user-facing statuses."""
         try:
-            deleted = app.state.quota_ledger.delete_download(download_id)
+            yield
         except ActiveTorrentError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except NotCompletedError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         except OutsideMediaRootError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+        except PathTakenError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.get("/media", dependencies=service_auth)
+    async def api_media_list(
+        x_bitbeard_account_id: int | None = Header(default=None),
+        x_bitbeard_discord: str | None = Header(default=None),
+    ):
+        """One Actor's Downloads for the My Media page.
+
+        In-flight rows come back with live progress; completed rows are
+        the ones the Account can delete, rename and move.
+        """
+        if x_bitbeard_account_id is None and x_bitbeard_discord is None:
+            raise HTTPException(
+                status_code=403, detail="No trusted Actor on the request."
+            )
+        downloads = app.state.quota_ledger.list_downloads(
+            account_id=x_bitbeard_account_id,
+            discord_name=x_bitbeard_discord,
+        )
+        return {"downloads": downloads}
+
+    @app.post("/media/{download_id}/delete", dependencies=service_auth)
+    async def api_media_delete(
+        download_id: int,
+        x_bitbeard_account_id: int | None = Header(default=None),
+        x_bitbeard_discord: str | None = Header(default=None),
+    ):
+        """Hard-delete the Actor's finished Download: files, record, quota.
+
+        A still-Active Torrent's paths are Protected (409 — the user
+        cancels instead) and a sandbox-breaking path is refused (400).
+        """
+        require_owned_download(
+            download_id,
+            account_id=x_bitbeard_account_id,
+            discord_name=x_bitbeard_discord,
+        )
+        with media_guards():
+            deleted = app.state.quota_ledger.delete_download(download_id)
         if deleted is None:
             raise HTTPException(status_code=404, detail="No such Download.")
         return {"deleted": deleted["id"], "name": deleted["name"]}
+
+    @app.post("/media/{download_id}/rename", dependencies=service_auth)
+    async def api_media_rename(
+        download_id: int,
+        request: MediaRenameRequest,
+        x_bitbeard_account_id: int | None = Header(default=None),
+        x_bitbeard_discord: str | None = Header(default=None),
+    ):
+        """Rename the Actor's completed Download: record + disk directory."""
+        name = validate_download_name(request.name)
+        require_owned_download(
+            download_id,
+            account_id=x_bitbeard_account_id,
+            discord_name=x_bitbeard_discord,
+        )
+        with media_guards():
+            updated = app.state.quota_ledger.rename_download(download_id, name)
+        if updated is None:
+            raise HTTPException(status_code=404, detail="No such Download.")
+        return {"renamed": updated["id"], "name": updated["name"]}
+
+    @app.post("/media/{download_id}/move", dependencies=service_auth)
+    async def api_media_move(
+        download_id: int,
+        request: MediaMoveRequest,
+        x_bitbeard_account_id: int | None = Header(default=None),
+        x_bitbeard_discord: str | None = Header(default=None),
+    ):
+        """Move the Actor's completed Download to another Category.
+
+        Record and disk follow; the Storage Quota is untouched.
+        """
+        if request.category not in CATEGORIES:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Unknown Category '{request.category}'. Choose one of: "
+                    f"{', '.join(CATEGORIES)}."
+                ),
+            )
+        require_owned_download(
+            download_id,
+            account_id=x_bitbeard_account_id,
+            discord_name=x_bitbeard_discord,
+        )
+        with media_guards():
+            updated = app.state.quota_ledger.move_download(
+                download_id, request.category
+            )
+        if updated is None:
+            raise HTTPException(status_code=404, detail="No such Download.")
+        return {
+            "moved": updated["id"],
+            "category": updated["category"],
+            "name": updated["name"],
+        }
+
+    @app.post("/media/{download_id}/cancel", dependencies=service_auth)
+    async def api_media_cancel(
+        download_id: int,
+        x_bitbeard_account_id: int | None = Header(default=None),
+        x_bitbeard_discord: str | None = Header(default=None),
+    ):
+        """Cancel one In-flight Download: only its own torrent is swept.
+
+        Unlike the panel-level ``POST /cancel``, this is Download-level:
+        the torrent parked at the record's save path is matched by path,
+        deleted from qBittorrent, and the record is settled as cancelled
+        (quota freed).
+        """
+        row = require_owned_download(
+            download_id,
+            account_id=x_bitbeard_account_id,
+            discord_name=x_bitbeard_discord,
+        )
+        cancelled = app.state.download_manager.cancel_for(row["save_path"])
+        if not cancelled:
+            raise HTTPException(
+                status_code=409,
+                detail="That Download is not In-flight anymore.",
+            )
+        app.state.quota_ledger.cancel(download_id)
+        return {"cancelled": cancelled}
 
     return app
 

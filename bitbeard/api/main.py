@@ -12,7 +12,8 @@ Admin Role. Frontend-service callers (the Bot) take the same user endpoints
 with the shared SERVICE_TOKEN plus the acting Discord user's headers — the
 API resolves a linked Account for attribution, or records the Actor as
 ``discord:<name>`` when the Discord user is unlinked. User-facing media work
-(Search, Download submission, progress, cancel) is proxied to the Download
+(Search, Download submission, progress, cancel, and the My Media
+operations on the Actor's own Downloads) is proxied to the Download
 Manager with the shared SERVICE_TOKEN and the acting Account as a trusted
 header — the API never touches qBittorrent or Jackett itself.
 
@@ -93,6 +94,16 @@ class DownloadRequest(BaseModel):
     size_bytes: int = Field(default=0, ge=0)
     #: The Torznab title, when known; qBittorrent's real name replaces it.
     title: str | None = None
+
+
+class MediaRenameRequest(BaseModel):
+    #: The Download's new name — the manager renames record and directory.
+    name: str = Field(min_length=1)
+
+
+class MediaMoveRequest(BaseModel):
+    #: The Category to move the Download into.
+    category: str = Field(min_length=1)
 
 
 class LifecycleEvent(BaseModel):
@@ -321,6 +332,63 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
             "account_id": caller.account_id,
         }
 
+    def require_owned_download(caller: Caller, download_id: int) -> dict:
+        """The Download record the Actor targets, or the boundary refusal.
+
+        Role and ownership are enforced here, where identity lives:
+        users operate only on their own Downloads, and an unknown record
+        is refused without ever reaching the manager. There is no admin
+        passthrough — the Admin Panel's file manager is how an Admin
+        touches another Actor's media.
+        """
+        row = db.get_download(config.db_path, download_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="No such Download.")
+        if caller.account_id is not None:
+            owner_mismatch = row["account"] != caller.account_id
+        else:
+            owner_mismatch = row["discord_name"] != caller.username
+        if owner_mismatch:
+            raise HTTPException(
+                status_code=403,
+                detail="This Download belongs to another Actor.",
+            )
+        return row
+
+    def forward_media_or_502(method: str, path: str, **kwargs) -> dict:
+        """Reach the manager for a media operation, passing refusals through.
+
+        The manager owns the Protected Path and Media Root guards, so its
+        deliberate 4xx answers (unknown Download, not owned, Active
+        Torrent, bad path or Category) surface to the Frontend verbatim —
+        the Webui renders them inline. Only a broken hop or a crashing
+        manager becomes the one 502.
+        """
+        try:
+            response = proxy.forward(method, path, **kwargs)
+        except ManagerUnavailable as exc:
+            logger.warning("Download Manager unavailable: %s", exc)
+            raise HTTPException(
+                status_code=502, detail="Download Manager unavailable."
+            )
+        if response.status_code >= 500:
+            logger.warning(
+                "Download Manager failed a proxied call with %s.",
+                response.status_code,
+            )
+            raise HTTPException(
+                status_code=502, detail="Download Manager unavailable."
+            )
+        if response.status_code >= 400:
+            detail = None
+            if isinstance(response.payload, dict):
+                detail = response.payload.get("detail")
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=detail or "Download Manager refused the request.",
+            )
+        return response.payload
+
     def enforce_quota(caller: Caller, size_bytes: int) -> None:
         """Refuse a submission that would exceed the Actor's Storage Quota.
 
@@ -425,6 +493,122 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
             actor=caller.username,
             action="download_cancel",
             details=payload,
+        )
+        return payload
+
+    @app.get("/media")
+    async def my_media(caller: Caller = Depends(require_caller)):
+        """The calling Actor's Downloads, for the Webui's My Media page.
+
+        Listing is proxied: the manager owns the records and the live
+        torrent progress, and scopes the answer to the trusted Actor the
+        API names — a user sees only their own Downloads.
+        """
+        return forward_media_or_502("GET", "/media", **actor_forward(caller))
+
+    @app.post("/media/{download_id}/delete")
+    async def media_delete(
+        download_id: int, caller: Caller = Depends(require_caller)
+    ):
+        """Delete the Actor's completed Download through the manager.
+
+        Ownership is checked here at the boundary; the manager does the
+        file work and refuses Protected Paths (Active Torrents) and
+        Media Root escapes. Deleting frees quota, so this is an audited
+        file operation.
+        """
+        row = require_owned_download(caller, download_id)
+        payload = forward_media_or_502(
+            "POST", f"/media/{download_id}/delete", **actor_forward(caller)
+        )
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="media_delete",
+            details={
+                "download_id": download_id,
+                "name": row["name"],
+                "save_path": row["save_path"],
+            },
+        )
+        return payload
+
+    @app.post("/media/{download_id}/rename")
+    async def media_rename(
+        download_id: int,
+        request: MediaRenameRequest,
+        caller: Caller = Depends(require_caller),
+    ):
+        """Rename the Actor's completed Download: record + disk directory."""
+        row = require_owned_download(caller, download_id)
+        payload = forward_media_or_502(
+            "POST",
+            f"/media/{download_id}/rename",
+            json={"name": request.name},
+            **actor_forward(caller),
+        )
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="media_rename",
+            details={
+                "download_id": download_id,
+                "name": row["name"],
+                "new_name": request.name,
+            },
+        )
+        return payload
+
+    @app.post("/media/{download_id}/move")
+    async def media_move(
+        download_id: int,
+        request: MediaMoveRequest,
+        caller: Caller = Depends(require_caller),
+    ):
+        """Move the Actor's completed Download to another Category.
+
+        Quota is unchanged — the manager moves the same bytes to a new
+        Category directory and repoints the record.
+        """
+        row = require_owned_download(caller, download_id)
+        payload = forward_media_or_502(
+            "POST",
+            f"/media/{download_id}/move",
+            json={"category": request.category},
+            **actor_forward(caller),
+        )
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="media_move",
+            details={
+                "download_id": download_id,
+                "name": row["name"],
+                "category": request.category,
+                "save_path": row["save_path"],
+            },
+        )
+        return payload
+
+    @app.post("/media/{download_id}/cancel")
+    async def media_cancel(
+        download_id: int, caller: Caller = Depends(require_caller)
+    ):
+        """Cancel one In-flight Download: the Actor's own torrent only.
+
+        Unlike the panel-level ``POST /cancel``, this is Download-level —
+        the manager sweeps only the torrent parked at this record's save
+        path and settles the record as cancelled.
+        """
+        require_owned_download(caller, download_id)
+        payload = forward_media_or_502(
+            "POST", f"/media/{download_id}/cancel", **actor_forward(caller)
+        )
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="download_cancel",
+            details={"download_id": download_id, **payload},
         )
         return payload
 

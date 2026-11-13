@@ -365,6 +365,16 @@ def set_download_size(path: str, download_id: int, size_bytes: int) -> None:
         connection.commit()
 
 
+def update_download_category(path: str, download_id: int, category: str) -> None:
+    """Point a Download record at its new Category after a move."""
+    with closing(connect(path)) as connection:
+        connection.execute(
+            "UPDATE downloads SET category = ? WHERE id = ?",
+            (category, download_id),
+        )
+        connection.commit()
+
+
 def complete_download(
     path: str, download_id: int, *, name: str, size_bytes: int
 ) -> None:
@@ -420,6 +430,42 @@ def all_downloads(path: str) -> list[sqlite3.Row]:
     """Every Download record, for reconciliation."""
     with closing(connect(path)) as connection:
         return connection.execute("SELECT * FROM downloads").fetchall()
+
+
+def downloads_for_owner(
+    path: str,
+    *,
+    account_id: int | None = None,
+    discord_name: str | None = None,
+) -> list[sqlite3.Row]:
+    """One Actor's Download records, newest first.
+
+    ``account_id`` names a linked Account; ``discord_name`` names the
+    ``discord:<name>`` Actor of an unlinked submitter. The Account filter
+    wins when both arrive, matching how submissions set ownership. With
+    neither, there is no Actor to scope to: nothing is returned.
+    """
+    with closing(connect(path)) as connection:
+        if account_id is not None:
+            return connection.execute(
+                "SELECT * FROM downloads WHERE account = ? ORDER BY id DESC",
+                (account_id,),
+            ).fetchall()
+        if discord_name is not None:
+            return connection.execute(
+                "SELECT * FROM downloads WHERE account IS NULL"
+                " AND discord_name = ? ORDER BY id DESC",
+                (discord_name,),
+            ).fetchall()
+        return []
+
+
+def get_download_by_save_path(path: str, save_path: str) -> sqlite3.Row | None:
+    """Find the Download record parked at a save path, for rename/move."""
+    with closing(connect(path)) as connection:
+        return connection.execute(
+            "SELECT * FROM downloads WHERE save_path = ?", (save_path,)
+        ).fetchone()
 
 
 def sum_download_sizes(path: str, account_id: int) -> int:

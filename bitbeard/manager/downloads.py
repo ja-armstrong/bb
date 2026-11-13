@@ -1,9 +1,9 @@
 """Deep Download module: the torrent lifecycle (add -> poll -> announce -> delete).
 
-Callers learn a small interface — ``submit``, ``progress``, ``cancel_all``
-and ``format_eta`` — and get the whole polling loop, hash-scoped completion
-sweep, and announcement wiring behind it. The client, config, announcer and
-poll interval are accepted as dependencies, never created here.
+Callers learn a small interface — ``submit``, ``progress``, ``cancel_all``,
+``cancel_for`` and ``format_eta`` — and get the whole polling loop, hash-scoped
+completion sweep, and announcement wiring behind it. The client, config,
+announcer and poll interval are accepted as dependencies, never created here.
 
 ``submit`` takes the acting Account's name so Lifecycle Events stay
 attributable, and an optional ``record`` — a ``DownloadRecord``-shaped
@@ -114,6 +114,26 @@ class DownloadManager:
                 record.cancelled()
             cancelled.append(torrent.name)
         self._actors.clear()
+        return cancelled
+
+    def cancel_for(self, save_path: str) -> list:
+        """Delete only the torrent(s) parked at ``save_path``.
+
+        This is the Download-level cancel the My Media page calls: the
+        torrent's directory is matched against the Download record's save
+        path, so one user's cancel never touches another's torrent. The
+        caller settles the Download's record (``QuotaLedger.cancel``);
+        the manager only sweeps qBittorrent and forgets its own mapping.
+        """
+        target = os.path.normpath(save_path)
+        cancelled = []
+        for torrent in self._qbt.torrents_info():
+            torrent_path = getattr(torrent, "save_path", None)
+            if torrent_path and os.path.normpath(torrent_path) == target:
+                self._qbt.torrents_delete(torrent_hashes=torrent.hash)
+                self._records.pop(torrent.hash, None)
+                self._submitted_hashes.discard(torrent.hash)
+                cancelled.append(torrent.name)
         return cancelled
 
     async def _add_and_monitor(

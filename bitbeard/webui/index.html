@@ -274,6 +274,12 @@
             <div id="download-message"></div>
         </div>
         <div class="section">
+            <h2>My Media</h2>
+            <button id="refresh-media">Refresh My Media</button>
+            <div id="mymedia-message"></div>
+            <div class="results" id="media-list"></div>
+        </div>
+        <div class="section">
             <h2>Download Progress</h2>
             <button id="refresh-progress">Refresh Progress</button>
             <div class="progress-list" id="progress-list"></div>
@@ -325,6 +331,7 @@
                 appView.classList.remove('hidden');
                 loadQuota();
                 loadProgress();
+                loadMedia();
             } catch (err) {
                 showLogin();
             }
@@ -606,6 +613,97 @@
                 msgDiv.innerHTML = `<span class="error">Error: ${err}</span>`;
             }
         });
+
+        // --- My Media -------------------------------------------------
+        // The Account's own Downloads (GET /media, scoped by the Session):
+        // In-flight ones show progress and can be cancelled individually;
+        // completed ones can be deleted (frees quota), renamed, or moved
+        // to another Category. Refusals from the guards (Protected Path /
+        // Active Torrent, quota, ownership) render inline on this page.
+        async function loadMedia() {
+            const list = document.getElementById('media-list');
+            list.innerHTML = "Loading...";
+            try {
+                const resp = await fetch(`${API_BASE}/media`);
+                if (handleAuthFailure(resp)) return;
+                const data = await resp.json();
+                const downloads = data.downloads || [];
+                if (!downloads.length) {
+                    list.innerHTML = "<em>No media yet. Download something!</em>";
+                    return;
+                }
+                list.innerHTML = downloads.map(d => {
+                    const info = d.status === "in_flight"
+                        ? `<div class="torrent-info">In-flight &nbsp;|&nbsp; Progress: ${d.progress || "…"} &nbsp;|&nbsp; ETA: ${d.eta || "…"}</div>`
+                        : `<div class="torrent-info">${d.category} &nbsp;|&nbsp; ${fmtGB(d.size_bytes)}</div>`;
+                    const actions = d.status === "in_flight"
+                        ? `<button onclick="cancelDownload(${d.id})">Cancel</button>`
+                        : `<button onclick="deleteDownload(${d.id})">Delete</button>
+                           <button onclick="renameDownload(${d.id})">Rename</button>
+                           <button onclick="moveDownload(${d.id})">Move to Category</button>`;
+                    return `
+                        <div class="torrent">
+                            <div><strong>${d.name || "(unnamed download)"}</strong></div>
+                            ${info}
+                            <div>${actions}</div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (err) {
+                list.innerHTML = `<span class="error">Error: ${err}</span>`;
+            }
+        }
+        document.getElementById('refresh-media').addEventListener('click', loadMedia);
+
+        async function mediaAction(id, action, body) {
+            // One inline error surface for every My Media operation: the
+            // API's refusal detail (Protected Path, quota, ownership) is
+            // shown on the page, not swallowed.
+            const msgDiv = document.getElementById('mymedia-message');
+            msgDiv.textContent = "Working...";
+            try {
+                const resp = await fetch(`${API_BASE}/media/${id}/${action}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body || {})
+                });
+                if (handleAuthFailure(resp)) return;
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok) {
+                    msgDiv.innerHTML = `<span class="success">${data.detail || "Done."}</span>`;
+                    loadMedia();
+                    loadQuota();
+                } else {
+                    msgDiv.innerHTML = `<span class="error">${data.detail || "Failed"}</span>`;
+                }
+            } catch (err) {
+                msgDiv.innerHTML = `<span class="error">Error: ${err}</span>`;
+            }
+        }
+
+        window.cancelDownload = function(id) {
+            return mediaAction(id, "cancel");
+        }
+
+        window.deleteDownload = function(id) {
+            if (confirm("Delete this download and its files?")) {
+                return mediaAction(id, "delete");
+            }
+        }
+
+        window.renameDownload = function(id) {
+            const name = prompt("New name:");
+            if (name && name.trim()) {
+                return mediaAction(id, "rename", { name: name.trim() });
+            }
+        }
+
+        window.moveDownload = function(id) {
+            const category = prompt("Move to Category (Movie, TV Show, Other):", "Movie");
+            if (category && category.trim()) {
+                return mediaAction(id, "move", { category: category.trim() });
+            }
+        }
 
         // Helper: Copy magnet link
         window.copyMagnet = function(magnet) {
