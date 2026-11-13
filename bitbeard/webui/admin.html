@@ -260,12 +260,12 @@
                 <button id="logout-btn">Log out</button>
             </div>
 
-            <!-- One button per Admin Panel page; pages beyond the Audit
-                 Ledger and Users land with their own tickets (#9, #10). -->
+            <!-- One button per Admin Panel page; the Files and VPN pages
+                 land with their own tickets (#10). -->
             <nav id="nav">
                 <button data-page="audit" class="active">Audit Ledger</button>
                 <button data-page="users">Users</button>
-                <button data-page="subsystems" disabled title="Coming with ticket #9">Subsystems</button>
+                <button data-page="subsystems">Subsystems</button>
                 <button data-page="files" disabled title="Coming with ticket #10">Files</button>
                 <button data-page="vpn" disabled title="Coming with ticket #10">VPN</button>
             </nav>
@@ -361,6 +361,22 @@
                     <tbody id="user-rows"></tbody>
                 </table>
                 <div id="users-message"></div>
+            </div>
+
+            <div class="section page hidden" id="page-subsystems">
+                <h2>Subsystems</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Subsystem</th>
+                            <th>State</th>
+                            <th>Reachability</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="service-rows"></tbody>
+                </table>
+                <div id="services-message"></div>
             </div>
         </div>
     </main>
@@ -539,7 +555,81 @@
             }
         });
 
+        // --- Subsystems page -------------------------------------------
+        function describeState(svc) {
+            if (svc.disabled) return `<span class="badge-disabled">Disabled</span>`;
+            const label = esc(svc.state);
+            if (svc.state === 'running') return `<span class="badge-enabled">${label}</span>`;
+            if (svc.state === 'absent') return `<span class="badge-disabled">${label}</span>`;
+            return esc(svc.state);
+        }
+
+        function describeProbe(svc) {
+            if (svc.port === null || svc.probe === null) return "—";
+            const what = `Port ${svc.port}`;
+            return svc.probe
+                ? `<span class="badge-enabled">${what} open</span>`
+                : `<span class="badge-disabled">${what} closed</span>`;
+        }
+
+        function renderServiceRow(svc) {
+            let actions = ['restart', 'stop', 'start'].map(action =>
+                `<button data-action="${action}" data-name="${esc(svc.name)}">${action[0].toUpperCase() + action.slice(1)}</button>`
+            ).join('');
+            if (svc.optional) {
+                actions += svc.disabled
+                    ? `<button data-action="enable" data-name="${esc(svc.name)}">Enable</button>`
+                    : `<button data-action="disable" data-name="${esc(svc.name)}">Disable</button>`;
+            }
+            return `
+                <tr>
+                    <td class="actor">${esc(svc.name)}</td>
+                    <td>${describeState(svc)}</td>
+                    <td>${describeProbe(svc)}</td>
+                    <td>${actions}</td>
+                </tr>`;
+        }
+
+        async function loadServices() {
+            const rows = document.getElementById('service-rows');
+            try {
+                const resp = await fetch(`${API_BASE}/admin/services`);
+                if (handleAuthFailure(resp)) return;
+                const data = await resp.json();
+                if (!resp.ok) {
+                    rows.innerHTML = `<tr><td colspan="4"><span class="error">${esc(data.detail || "Failed to load Subsystems")}</span></td></tr>`;
+                    return;
+                }
+                rows.innerHTML = data.services.map(renderServiceRow).join('');
+            } catch (err) {
+                rows.innerHTML = `<tr><td colspan="4"><span class="error">Error: ${esc(err)}</span></td></tr>`;
+            }
+        }
+
+        // Every per-Subsystem action: one delegated listener, one reload.
+        document.getElementById('service-rows').addEventListener('click', async function(e) {
+            const btn = e.target.closest('button[data-action]');
+            if (!btn) return;
+            const name = btn.dataset.name;
+            const action = btn.dataset.action;
+            const msgId = 'services-message';
+            try {
+                const resp = await fetch(`${API_BASE}/admin/services/${name}/${action}`, { method: "POST" });
+                if (handleAuthFailure(resp)) return;
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok) {
+                    flash(msgId, `Subsystem '${name}': ${action} done.`);
+                } else {
+                    flash(msgId, data.detail || "The action was refused.", true);
+                }
+                loadServices();
+            } catch (err) {
+                flash(msgId, `Error: ${err}`, true);
+            }
+        });
+
         // --- Panel page routing ---------------------------------------
+
         function showPage(name) {
             document.querySelectorAll('#nav button').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.page === name);
@@ -550,6 +640,7 @@
             document.getElementById(`page-${name}`).classList.remove('hidden');
             if (name === 'audit') loadLedger();
             else if (name === 'users') loadUsers();
+            else if (name === 'subsystems') loadServices();
         }
 
         document.querySelectorAll('#nav button:not([disabled])').forEach(btn => {

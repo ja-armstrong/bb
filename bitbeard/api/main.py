@@ -39,6 +39,13 @@ from shared.security import verify_password
 from shared.service_auth import require_service_token
 
 from .config import Config, load_config
+from .docker_control import (
+    CONTAINER_ACTIONS,
+    DockerControl,
+    DockerUnavailable,
+    OPTIONAL_SUBSYSTEMS,
+    SUBSYSTEM_PORTS,
+)
 from .manager_proxy import ManagerProxy, ManagerUnavailable, Transport
 from .sessions import SessionStore
 
@@ -201,9 +208,13 @@ def quota_view(account, config: Config) -> dict:
     }
 
 
-def create_app(config: Config | None = None, proxy_transport: Transport | None = None) -> FastAPI:
-    """Build the API app. ``config`` and the manager transport are
-    injectable for tests."""
+def create_app(
+    config: Config | None = None,
+    proxy_transport: Transport | None = None,
+    docker_control: DockerControl | None = None,
+) -> FastAPI:
+    """Build the API app. ``config``, the manager transport and the docker
+    control are injectable for tests."""
     config = config or load_config()
 
     @asynccontextmanager
@@ -331,6 +342,35 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
 
     proxy = ManagerProxy(config.manager_url, config.service_token, proxy_transport)
     app.state.manager_proxy = proxy
+
+    control = docker_control or DockerControl(config.compose_project)
+    app.state.docker_control = control
+
+    def docker_or_502(action):
+        """Run one docker action or report the socket as broken.
+
+        Like the manager hop, docker being unavailable is not the Admin
+        Panel's concern to diagnose: every failure on the API<->docker hop
+        becomes one 502 the panel can show inline.
+        """
+        try:
+            return action()
+        except DockerUnavailable as exc:
+            logger.warning("Docker unavailable: %s", exc)
+            raise HTTPException(
+                status_code=502, detail="Docker is unavailable."
+            )
+
+    def service_view(name: str, statuses: dict[str, str]) -> dict:
+        """One Subsystem's row for the panel: state, probe, disable flag."""
+        return {
+            "name": name,
+            "state": statuses.get(name, "absent"),
+            "port": SUBSYSTEM_PORTS[name],
+            "probe": control.probe(name),
+            "optional": name in OPTIONAL_SUBSYSTEMS,
+            "disabled": db.service_disabled(config.db_path, name),
+        }
 
     def forward_or_502(method: str, path: str, **kwargs) -> dict:
         """Reach the manager or report the hop as broken.
@@ -1094,6 +1134,78 @@ def create_app(config: Config | None = None, proxy_transport: Transport | None =
             limit=limit,
             offset=offset,
         )
+
+    @app.get("/admin/services")
+    async def admin_services(caller: Caller = Depends(require_admin)):
+        """Every Subsystem with container state, probe and disable flag.
+
+        The listing is label-filtered to this compose project inside the
+        docker control; an Optional Subsystem recorded as disabled stays
+        flagged even when its container is stopped or gone — the flag is
+        the Admin's decision, not a container state.
+        """
+        statuses = docker_or_502(control.statuses)
+        services = [service_view(name, statuses) for name in SUBSYSTEM_PORTS]
+        return {"services": services}
+
+    @app.post("/admin/services/{name}/{action}")
+    async def admin_service_action(
+        name: str, action: str, caller: Caller = Depends(require_admin)
+    ):
+        """Control one Subsystem — audited, label-filtered, name-checked
+        (ADR-0003).
+
+        Only the Subsystem names from ``docker-compose.yml`` are known; an
+        unknown name is refused before any docker call happens, so the
+        socket's root-equivalent power stays scoped to this stack.
+        Disable/enable exist for the Optional Subsystem only: disable
+        stops the Bot and records the decision (surviving restarts of
+        everything), enable clears it and starts the container again —
+        both gracefully when the container is not there to act on.
+        """
+        if name not in SUBSYSTEM_PORTS:
+            raise HTTPException(status_code=404, detail="No such Subsystem.")
+
+        if action in CONTAINER_ACTIONS:
+            state = docker_or_502(lambda: control.act(name, action))
+            audited = f"subsystem_{action}"
+        elif action == "disable":
+            if name not in OPTIONAL_SUBSYSTEMS:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Only the Optional Subsystem can be disabled.",
+                )
+            state = docker_or_502(lambda: control.act(name, "stop"))
+            db.set_service_disabled(config.db_path, name, True)
+            audited = "subsystem_disabled"
+        elif action == "enable":
+            if name not in OPTIONAL_SUBSYSTEMS:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Only the Optional Subsystem can be disabled.",
+                )
+            state = docker_or_502(lambda: control.act(name, "start"))
+            db.set_service_disabled(config.db_path, name, False)
+            audited = "subsystem_enabled"
+        else:
+            raise HTTPException(status_code=400, detail="Unknown action.")
+
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action=audited,
+            details={"subsystem": name, "state": state},
+        )
+        logger.info(
+            "Subsystem '%s': %s by %s (state now %s).",
+            name, action, caller.username, state,
+        )
+        return {
+            "name": name,
+            "action": action,
+            "state": state,
+            "disabled": db.service_disabled(config.db_path, name),
+        }
 
     return app
 

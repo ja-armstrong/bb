@@ -1,5 +1,9 @@
 fastapi
 uvicorn
+# Docker control for the Admin Panel's Subsystems page (ADR-0003). The
+# client is built lazily (api.docker_control), so importing api.main alone
+# keeps the import-safety guarantee.
+docker
 # Outbound HTTP for the proxy hop to the Download Manager (imported lazily,
 # so importing api.main alone keeps the import-safety guarantee).
 requests

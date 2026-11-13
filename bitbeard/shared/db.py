@@ -76,6 +76,11 @@ CREATE TABLE IF NOT EXISTS link_codes (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS service_states (
+    name TEXT PRIMARY KEY,
+    disabled INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id);
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(ts);
 CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit(actor);
@@ -374,6 +379,35 @@ def consume_pending_link(path: str, discord_id: str) -> sqlite3.Row | None:
         )
         connection.commit()
     return get_account(path, row["account_id"])
+
+
+# --- Subsystem disable state (Admin Panel) -----------------------------------
+#
+# Whether an Optional Subsystem is disabled survives restarts of the API in
+# this one-row-per-Subsystem table: a container can be stopped and gone from
+# a live docker listing, but "disabled" is a decision the Admin made, not a
+# container state. Only Optional Subsystems (the Bot today) ever get a row.
+
+def service_disabled(path: str, name: str) -> bool:
+    """Whether a Subsystem is recorded as disabled by the Admin Panel."""
+    with closing(connect(path)) as connection:
+        row = connection.execute(
+            "SELECT disabled FROM service_states WHERE name = ?", (name,)
+        ).fetchone()
+    return bool(row) and bool(row["disabled"])
+
+
+def set_service_disabled(path: str, name: str, disabled: bool) -> None:
+    """Record (or clear) a Subsystem's disabled state."""
+    with closing(connect(path)) as connection:
+        connection.execute(
+            """
+            INSERT INTO service_states (name, disabled) VALUES (?, ?)
+            ON CONFLICT(name) DO UPDATE SET disabled = excluded.disabled
+            """,
+            (name, int(disabled)),
+        )
+        connection.commit()
 
 
 def record_audit(path: str, actor: str, action: str, details: Any = None) -> None:

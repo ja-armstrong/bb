@@ -8,6 +8,10 @@ DEFAULT_DB_PATH = "/data/bitbeard.db"
 DEFAULT_QUOTA_GB = 50.0
 DEFAULT_SESSION_TTL_HOURS = 24.0
 DEFAULT_MANAGER_URL = "http://127.0.0.1:9871"
+# The docker-compose project name: the label value the docker-control
+# listing filters on (ADR-0003). docker-compose derives the same name from
+# the directory unless COMPOSE_PROJECT_NAME says otherwise.
+DEFAULT_COMPOSE_PROJECT = "bitbeard"
 GIB = 1024 ** 3
 
 
@@ -20,6 +24,7 @@ class Config:
     default_quota_gb: float
     session_ttl_hours: float = DEFAULT_SESSION_TTL_HOURS
     manager_url: str = DEFAULT_MANAGER_URL
+    compose_project: str = DEFAULT_COMPOSE_PROJECT
 
     @property
     def default_quota_bytes(self) -> int:
@@ -38,4 +43,7 @@ def load_config() -> Config:
             "SESSION_TTL_HOURS", cast=float, default=DEFAULT_SESSION_TTL_HOURS
         ),
         manager_url=env("MANAGER_URL", default=DEFAULT_MANAGER_URL),
+        compose_project=env(
+            "COMPOSE_PROJECT_NAME", default=DEFAULT_COMPOSE_PROJECT
+        ),
     )
