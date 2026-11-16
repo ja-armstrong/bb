@@ -12,7 +12,14 @@ logger = logging.getLogger(__name__)
 
 
 class CompletionNotifier:
-    """Posts a Discord message when a Completion Event arrives."""
+    """Posts a Discord message when a Completion Event arrives.
+
+    channel_id may be None: announcing is optional, so the Bot runs
+    without announcements. Completion Events are still accepted by the
+    webhook; announce() then skips without logging — the single
+    announcements-off notice is logged once at startup by the
+    application, never per event.
+    """
 
     def __init__(self, client, channel_id: int | None):
         self._client = client
@@ -25,6 +32,8 @@ class CompletionNotifier:
 
     async def announce(self, torrent_name: str, category: str | None) -> None:
         """Post the announcement for one completed Download."""
+        if self._channel_id is None:
+            return
         channel = self._client.get_channel(self._channel_id)
         if channel is None:
             logger.warning(
