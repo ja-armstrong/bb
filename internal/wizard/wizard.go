@@ -18,6 +18,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/ja-armstrong/bb/internal/proxy"
 )
 
 // Options parameterises Run.
@@ -35,6 +37,10 @@ type Options struct {
 	Rand io.Reader
 	// Discord live-checks bot tokens; nil means the real Discord API.
 	Discord DiscordChecker
+	// Proxy are the reverse-proxy stage's boundaries (commands, DNS, the
+	// public-IP service, port probes, host paths); nil means the real
+	// ones. Tests point it at fakes.
+	Proxy *proxy.Deps
 }
 
 // Result reports what the configuration and boot stage did.
@@ -60,6 +66,9 @@ type collected struct {
 	media string
 	// bot is true when the Bot keys were provided.
 	bot bool
+	// proxy is the reverse-proxy stage's answers, nil when the operator
+	// chose to stay LAN-only (or declined on a rerun).
+	proxy *proxy.Answers
 }
 
 // discord returns the configured DiscordChecker, defaulting to the real
@@ -116,10 +125,20 @@ func Run(o Options) (Result, error) {
 			if err != nil {
 				return res, err
 			}
+			// The reverse-proxy reconfigure offer, after the Optional
+			// Subsystems so the jellyfin site block follows this run's
+			// Media Server choice. Declining changes nothing.
+			proxyAnswers, err := collectProxyRerun(pr, out, e, hasProfile(stage.profiles, profileJellyfin))
+			if err != nil {
+				return res, err
+			}
 			if stage.changed || vpnStage.changed {
 				// Overlay the newly collected keys on the kept values;
 				// the prompted stage always wins, the rest is preserved.
-				ne := mergeEnv(e, stage.env)
+				// The fallback seeds only the keys an older wizard's .env
+				// never carried, so a rewrite stays as complete as a
+				// fresh one.
+				ne := mergeEnv(mergeEnv(fallbackEnv, e), stage.env)
 				for k, v := range vpnStage.env {
 					ne[k] = v
 				}
@@ -183,9 +202,26 @@ func Run(o Options) (Result, error) {
 			}
 
 			// The .env in effect for the boot: the kept values with the
-			// prompted stage overlaid and the new profiles applied.
-			bootEnv := mergeEnv(e, stage.env)
+			// prompted stage overlaid and the new profiles applied (the
+			// fallback seeding absent keys, as in the changed branch).
+			bootEnv := mergeEnv(mergeEnv(fallbackEnv, e), stage.env)
 			bootEnv["COMPOSE_PROFILES"] = stage.profiles
+
+			// The reverse-proxy stage, only when the operator accepted the
+			// reconfigure offer. The markers go into .env now that the
+			// stage succeeded, so the boot summary, the doctor and later
+			// reruns see the integration.
+			if proxyAnswers != nil {
+				if err := applyProxy(proxyAnswers, o, out, pr, bootEnv); err != nil {
+					return res, fmt.Errorf("setting up the reverse proxy: %w", err)
+				}
+				if err := writeEnvFile(res.EnvPath, bootEnv); err != nil {
+					// USER-FACING
+					return res, fmt.Errorf("writing %s: %w", res.EnvPath, err)
+				}
+				res.WroteEnv = true
+			}
+
 			if err := boot(o, composeDir, out, &res, bootEnv); err != nil {
 				return res, err
 			}
@@ -264,6 +300,21 @@ func Run(o Options) (Result, error) {
 			return err == nil && ok
 		}); err != nil {
 			return res, err
+		}
+	}
+
+	// The reverse-proxy stage, only when the operator answered yes in
+	// collect. The stage runs before boot so a refusal or failure stops
+	// setup with nothing half-booted; on success the integration markers
+	// land in .env (a rewrite of the just-written file, now with the
+	// stage's state), and the boot summary prints the public URLs.
+	if c.proxy != nil {
+		if err := applyProxy(c.proxy, o, out, pr, e); err != nil {
+			return res, fmt.Errorf("setting up the reverse proxy: %w", err)
+		}
+		if err := writeEnvFile(res.EnvPath, e); err != nil {
+			// USER-FACING
+			return res, fmt.Errorf("writing %s: %w", res.EnvPath, err)
 		}
 	}
 
@@ -377,6 +428,16 @@ func collect(o Options, out io.Writer, pr *prompter) (collected, error) {
 	c.bot = stage.bot
 	for k, v := range stage.env {
 		c.env[k] = v
+	}
+
+	// Public reverse proxy (Caddy): asked after the Optional Subsystems
+	// so the derived jellyfin.<domain> site block follows the Media
+	// Server choice, and answered before .env is written so a successful
+	// stage can mark the integration in the same file. A no (the
+	// default) keeps the stack LAN-only and asks nothing further.
+	c.proxy, err = collectProxy(pr, out, c.media == profileJellyfin)
+	if err != nil {
+		return c, err
 	}
 
 	return c, nil
@@ -665,6 +726,23 @@ func boot(o Options, composeDir string, out io.Writer, res *Result, e Env) error
 			fmt.Fprintln(out, "  Bot: running; it announces finished Downloads in DISCORD_ANNOUNCE_CHANNEL_ID (invite it to your server if it has not joined yet)")
 		}
 	}
+
+	// Public URLs of the reverse-proxy integration, when it is on: the
+	// operator just set the domain, so showing the names back is free
+	// usefulness (ticket #34 owner addendum). The .env record is display
+	// state; the serving configuration lives in the managed snippet.
+	if proxy.Enabled(e) {
+		if domain := proxy.DomainFromEnv(e); domain != "" {
+			webui, jelly := proxy.DeriveHosts(domain)
+			// USER-FACING
+			fmt.Fprintf(out, "  Public Webui: https://%s — works once DNS points the name at this machine; Caddy retries TLS until then\n", webui)
+			if hasProfile(profiles, profileJellyfin) {
+				// USER-FACING
+				fmt.Fprintf(out, "  Public Media Server: https://%s\n", jelly)
+			}
+		}
+	}
+
 	// USER-FACING
 	fmt.Fprintln(out, "Note: VPN credentials cannot be truly checked before boot. If gluetun keeps restarting, re-check OPENVPN_USER and OPENVPN_PASSWORD with `docker compose logs gluetun` in the stack directory.")
 	return nil

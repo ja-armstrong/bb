@@ -9,6 +9,34 @@ browser ──TLS──> Caddy (edge) ──> Webui nginx (:8081) ──> API (:
                                    Jellyfin (:8096) <── (subdomain)
 ```
 
+## Let `bitbeard setup` do this
+
+On a fresh machine, `bitbeard setup` can set this whole page up: answer
+yes at the reverse-proxy question and give one base domain. The wizard
+installs the Caddy package if it is missing, writes a managed snippet at
+`/etc/caddy/caddy.d/bitbeard.caddy` with the two sites derived from the
+domain (`bitbeard.<domain>` for the Webui, `jellyfin.<domain>` for the
+Media Server — the apex stays free), and makes the main Caddyfile import
+the snippet directory. An operator-owned Caddyfile is never rewritten:
+the import line is appended only with the operator's consent after the
+diff is shown. The configuration is validated before anything is
+reloaded, and the service is then started or reloaded — every privileged
+command is shown before it runs.
+
+The wizard refuses to fight for host ports: if 80 or 443 is already in
+use, it stops and points at the manual path below. A DNS pre-flight
+(warn-only) resolves both derived names and compares them with the
+machine's public IP; a mismatch is a plain warning — DNS can be fixed
+after setup, and Caddy retries TLS until the names point here.
+
+The integration is remembered in `.env` (`CADDY_ENABLED=1`,
+`CADDY_DOMAIN=<domain>`); the doctor then checks that the caddy service
+is running, and the boot summary prints the public URLs. The managed
+snippet is the operator's file afterwards: edit it freely, but a
+reconfigure run of `bitbeard setup` regenerates it from the wizard's
+answers. Other distros than the apt family get the manual instructions
+instead of an install.
+
 ## The X-Forwarded-For contract
 
 The API reads the **first** entry of `X-Forwarded-For` (XFF) twice, for

@@ -119,9 +119,9 @@ func airvpnMandatory() string {
 }
 
 // airvpnInputs scripts a full flow that skips both Optional Subsystems
-// (empty answers): media server and bot.
+// and the reverse proxy (empty answers): media server, bot, Caddy.
 func airvpnInputs() string {
-	return airvpnMandatory() + "\n\n"
+	return airvpnMandatory() + "\n\n\n"
 }
 
 // TestRunFullBuiltInProviderFlow covers the happy path on a fresh machine.
@@ -256,6 +256,7 @@ func TestRunNordVPNKeepsBundledConfig(t *testing.T) {
 		"UTC", "50", "24", "/media",
 		"", // Media Server: skip
 		"", // Bot: skip
+		"", // Reverse proxy: skip
 	}, "\n") + "\n"
 	out, _, err := runWizard(t, stackDir, inputs, comp, nil)
 	if err != nil {
@@ -300,6 +301,7 @@ func TestRunCustomOVPNPathCopiesAndConfirms(t *testing.T) {
 		"",  // BASE_DOWNLOAD_DIR default /media
 		"",  // Media Server: skip
 		"",  // Bot: skip
+		"",  // Reverse proxy: skip
 		"y", // confirm replacing the bundled custom.ovpn
 	}, "\n") + "\n"
 	out, _, err := runWizard(t, stackDir, inputs, comp, nil)
@@ -344,7 +346,7 @@ func TestRunCustomOVPNRefusalAborts(t *testing.T) {
 
 	nCustom := len(VPNProviders) + 1
 	inputs := strings.Join([]string{
-		itoa(nCustom), src, "", "", "UTC", "10", "12", "", "", "",
+		itoa(nCustom), src, "", "", "UTC", "10", "12", "", "", "", "",
 		"n", // refuse to replace the bundled file
 	}, "\n") + "\n"
 	_, _, err := runWizard(t, stackDir, inputs, comp, nil)
@@ -369,10 +371,10 @@ func TestRunRerunWithValidEnvSkipsToBoot(t *testing.T) {
 	}
 
 	comp := newFakeCompose()
-	// Three empty answers: the VPN provider switch offer, the Media Server
-	// switch offer and the Bot enable offer all default to no, so nothing
-	// changes and nothing is rewritten.
-	out, res, err := runWizard(t, stackDir, "\n\n\n", comp, nil)
+	// Four empty answers: the VPN provider switch offer, the Media Server
+	// switch offer, the Bot enable offer and the reverse-proxy reconfigure
+	// offer all default to no, so nothing changes and nothing is rewritten.
+	out, res, err := runWizard(t, stackDir, "\n\n\n\n", comp, nil)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -519,6 +521,7 @@ func TestRunRerunSwitchesKnownToCustom(t *testing.T) {
 		src,                         // path to the .ovpn file
 		"",                          // Media Server: skip
 		"",                          // Bot: skip
+		"",                          // Reverse proxy: skip
 		"y",                         // confirm replacing what is at openvpn/custom.ovpn
 	}, "\n") + "\n"
 	out, res, err := runWizard(t, stackDir, inputs, comp, nil)
@@ -576,6 +579,7 @@ func TestRunRerunSwitchesCustomToKnown(t *testing.T) {
 		"y",           // delete the now-unused copy
 		"",            // Media Server: skip
 		"",            // Bot: skip
+		"",            // Reverse proxy: skip
 	}, "\n") + "\n"
 	out, res, err := runWizard(t, stackDir, inputs, comp, nil)
 	if err != nil {
@@ -631,6 +635,7 @@ func TestRunRerunCustomToKnownCanKeepTheCopy(t *testing.T) {
 		"n", // keep the copy
 		"",  // Media Server: skip
 		"",  // Bot: skip
+		"",  // Reverse proxy: skip
 	}, "\n") + "\n"
 	out, _, err := runWizard(t, stackDir, inputs, comp, nil)
 	if err != nil {

@@ -56,14 +56,20 @@ func (f *fakeProber) Get(url string) (int, error) {
 }
 
 // fakeRunner is the prereqs.Runner boundary for detection: canned results
-// per command, with RunInteractive recorded (detection must never escalate).
+// per command, with RunInteractive recorded (detection must never
+// escalate). coErrs answers a key with canned output AND an error (a
+// command that ran and failed, e.g. an inactive systemd service).
 type fakeRunner struct {
 	results   map[string]string // "docker --version" -> combined output
+	coErrs    map[string]error
 	sudoCalls int
 }
 
 func (f *fakeRunner) CombinedOutput(name string, args ...string) (string, error) {
 	key := name + " " + strings.Join(args, " ")
+	if e, ok := f.coErrs[key]; ok {
+		return f.results[key], e
+	}
 	if _, ok := f.results[key]; ok {
 		return f.results[key], nil
 	}
@@ -461,6 +467,78 @@ func TestSummaryAndExitSignal(t *testing.T) {
 	}
 	if !strings.Contains(report, "rerun `bitbeard doctor` to confirm") {
 		t.Errorf("failing summary should point back at the doctor; report:\n%s", report)
+	}
+}
+
+// TestRunCaddyCheckWhenEnabled covers the doctor's reverse-proxy check:
+// with CADDY_ENABLED=1 the caddy service is probed read-only (running,
+// stopped, and systemd-unavailable cases), and the check is absent when
+// the integration is off.
+func TestRunCaddyCheckWhenEnabled(t *testing.T) {
+	stack := setupStack(t)
+	env := validEnv + "CADDY_ENABLED=1\nCADDY_DOMAIN=example.com\n"
+	if err := writeFile(filepath.Join(stack, "bitbeard", ".env"), env); err != nil {
+		t.Fatal(err)
+	}
+	comp := &fakeCompose{ps: psHealthy}
+	prober := &fakeProber{}
+
+	// Running: the check passes and the report says it probed read-only.
+	runner := &fakeRunner{results: map[string]string{
+		"docker --version":          "Docker version 27.0.0",
+		"docker compose version":    "Docker Compose version v2.27.0",
+		"docker-compose --version":  "Docker Compose version v2.27.0",
+		"systemctl is-active caddy": "active\n",
+	}}
+	res, report := runDoctor(t, stack, comp, prober, runner)
+	assertPass(t, res, "Caddy (reverse proxy)")
+	if !strings.Contains(report, "running (systemctl is-active)") {
+		t.Errorf("the passing caddy check is not stated plainly:\n%s", report)
+	}
+	if runner.sudoCalls != 0 {
+		t.Errorf("the caddy check must stay read-only: %d privileged calls", runner.sudoCalls)
+	}
+
+	// Stopped: the check fails with the start fix. systemctl answers
+	// "inactive" with a non-zero exit — a systemd answer, not a failure
+	// to ask.
+	runner = &fakeRunner{
+		results: map[string]string{
+			"docker --version":          "Docker version 27.0.0",
+			"docker compose version":    "Docker Compose version v2.27.0",
+			"docker-compose --version":  "Docker Compose version v2.27.0",
+			"systemctl is-active caddy": "inactive",
+		},
+		coErrs: map[string]error{"systemctl is-active caddy": errors.New("exit status 3")},
+	}
+	res, _ = runDoctor(t, stack, comp, prober, runner)
+	assertFail(t, res, "Caddy (reverse proxy)", "is not running", "systemctl enable --now caddy")
+
+	// Unanswerable (systemd missing): the check fails without pretending
+	// to know the state.
+	runner = &fakeRunner{
+		results: map[string]string{
+			"docker --version":         "Docker version 27.0.0",
+			"docker compose version":   "Docker Compose version v2.27.0",
+			"docker-compose --version": "Docker Compose version v2.27.0",
+		},
+	}
+	res, _ = runDoctor(t, stack, comp, prober, runner)
+	assertFail(t, res, "Caddy (reverse proxy)", "could not ask systemd", "systemctl status caddy")
+
+	// The check joins the count: one more than the disabled case.
+	if n := len(res.Checks); n != 15 {
+		t.Errorf("%d checks ran with the integration on, want 15", n)
+	}
+
+	// Integration off: nothing about Caddy at all.
+	stack2 := setupStack(t)
+	runner = dockerOK()
+	res, _ = runDoctor(t, stack2, comp, prober, runner)
+	for _, c := range res.Checks {
+		if strings.Contains(c.Name, "Caddy") {
+			t.Errorf("no Caddy check may run when the integration is off: %+v", c)
+		}
 	}
 }
 
