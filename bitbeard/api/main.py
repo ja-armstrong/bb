@@ -1332,6 +1332,157 @@ def create_app(
             **quota_view(updated, config),
         }
 
+    # --- Registration review (ticket #30) -----------------------------------
+    #
+    # The Admin's half of the flow the public /register endpoint started:
+    # pending requests are listed, approved into working Accounts, or
+    # denied. Both decisions are audited like every admin action.
+
+    @app.get("/admin/registrations")
+    async def admin_list_registrations(caller: Caller = Depends(require_admin)):
+        """Every pending Registration Request, for the Admin Panel's
+        Registrations page.
+
+        A listing is a read, not a consequential action — the decisions
+        (approve, deny) are what land in the Audit Ledger. The stored
+        password hash never leaves the store: the panel has no use for
+        it and the ledger must never carry it.
+        """
+        requests = [
+            {
+                "id": row["id"],
+                "username": row["username"],
+                "note": row["note"],
+                "created_at": row["created_at"],
+                "source_ip": row["source_ip"],
+            }
+            for row in db.list_registration_requests(config.db_path)
+        ]
+        return {"requests": requests}
+
+    @app.post("/admin/registrations/{request_id}/approve")
+    async def admin_approve_registration(
+        request_id: int, caller: Caller = Depends(require_admin)
+    ):
+        """Approve a Registration Request: create the Account it asked
+        for — audited.
+
+        The stored username and password hash become a User Account
+        directly, so the credentials the visitor chose at submission log
+        in immediately — no reset ceremony. Because time may have passed,
+        the username is re-checked at the moment of approval: an Account
+        (or a newer pending request) may have taken it since. On conflict
+        the approval is refused with the situation named plainly, so the
+        Admin can deny the stale request instead; nothing is written.
+        """
+        row = db.get_registration_request(config.db_path, request_id)
+        if row is None:
+            # USER-FACING
+            raise HTTPException(
+                status_code=404, detail="No such Registration Request."
+            )
+        username = row["username"]
+
+        if db.find_account(config.db_path, username) is not None:
+            raise HTTPException(
+                status_code=409,
+                # USER-FACING
+                detail=(
+                    f"An Account with the username '{username}' already "
+                    "exists now. Deny this stale request."
+                ),
+            )
+        clash = db.pending_registration_request(config.db_path, username)
+        if clash is not None and clash["id"] != request_id:
+            raise HTTPException(
+                status_code=409,
+                # USER-FACING
+                detail=(
+                    f"A newer request for the username '{username}' is "
+                    "pending. Deny this stale request."
+                ),
+            )
+
+        account_id = db.create_account_from_hash(
+            config.db_path,
+            username=username,
+            password_hash=row["password_hash"],
+            role="user",
+        )
+        if account_id is None:
+            # The store's UNIQUE constraint caught a race the pre-check
+            # missed; the situation reads as an existing Account now.
+            raise HTTPException(
+                status_code=409,
+                # USER-FACING
+                detail=(
+                    f"An Account with the username '{username}' already "
+                    "exists now. Deny this stale request."
+                ),
+            )
+        db.delete_registration_request(config.db_path, request_id)
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="registration_approved",
+            details={
+                "registration_request_id": request_id,
+                "account_id": account_id,
+                "username": username,
+                "source_ip": row["source_ip"],
+            },
+        )
+        logger.info(
+            "Registration Request %d ('%s') approved by %s; Account %d "
+            "created.",
+            request_id, username, caller.username, account_id,
+        )
+        return {
+            # USER-FACING
+            "message": (
+                f"Approved. '{username}' can now log in with the "
+                "credentials they chose."
+            ),
+            "account_id": account_id,
+            "username": username,
+        }
+
+    @app.post("/admin/registrations/{request_id}/deny")
+    async def admin_deny_registration(
+        request_id: int, caller: Caller = Depends(require_admin)
+    ):
+        """Deny a Registration Request: remove it — audited.
+
+        The pending row is the whole request, so denying is deleting it;
+        the ledger keeps the decision (and the username and source IP
+        the request carried) after the row is gone.
+        """
+        row = db.delete_registration_request(config.db_path, request_id)
+        if row is None:
+            # USER-FACING
+            raise HTTPException(
+                status_code=404, detail="No such Registration Request."
+            )
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="registration_denied",
+            details={
+                "registration_request_id": request_id,
+                "username": row["username"],
+                "source_ip": row["source_ip"],
+            },
+        )
+        logger.info(
+            "Registration Request %d ('%s') denied by %s.",
+            request_id, row["username"], caller.username,
+        )
+        return {
+            # USER-FACING
+            "message": f"Denied. The request from '{row['username']}' was removed.",
+            "username": row["username"],
+        }
+
     @app.get("/admin/audit")
     async def admin_audit(
         caller: Caller = Depends(require_admin),
