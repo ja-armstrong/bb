@@ -13,9 +13,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
+
+// The documented default JELLYFIN_URL: how the api container reaches the
+// Jellyfin Subsystem's host-published 8096 (extra_hosts host-gateway in
+// docker-compose.yml). The wizard, .env.example and the api's config all
+// name the same value; this constant is the Go side's single home for it.
+const defaultJellyfinURL = "http://host.docker.internal:8096"
 
 // The Optional Subsystem profile names, as COMPOSE_PROFILES and
 // docker-compose.yml understand them. Order is the canonical write order:
@@ -132,6 +139,46 @@ func (d DiscordAPI) CheckToken(token string) (int, error) {
 	return resp.StatusCode, nil
 }
 
+// JellyfinChecker live-checks an API token against a Jellyfin server's
+// /System/Info (ticket #31). The URL is part of the check: a wrong URL
+// and an unreachable server are the same network failure from here.
+type JellyfinChecker interface {
+	// CheckToken returns the HTTP status Jellyfin answered for the token
+	// at baseURL, or a transport error when it could not be reached at all.
+	CheckToken(baseURL, token string) (int, error)
+}
+
+// JellyfinAPI is the production JellyfinChecker: a GET of
+// <baseURL>/System/Info carrying the API token.
+type JellyfinAPI struct {
+	// Client is the HTTP client; nil means a 10-second-timeout client.
+	Client *http.Client
+}
+
+// CheckToken issues the GET and returns the response status code.
+func (j JellyfinAPI) CheckToken(baseURL, token string) (int, error) {
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return 0, fmt.Errorf("%q is not a usable Jellyfin URL", baseURL)
+	}
+	req, err := http.NewRequest(http.MethodGet, baseURL+"/System/Info", nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("X-Emby-Token", token)
+	c := j.Client
+	if c == nil {
+		c = &http.Client{Timeout: 10 * time.Second}
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body) // drained so the connection is reusable
+	return resp.StatusCode, nil
+}
+
 // optionalStage is what the Optional Subsystems prompts produced.
 type optionalStage struct {
 	// media is the Media Server profile after the stage: profileJellyfin,
@@ -153,7 +200,7 @@ type optionalStage struct {
 // collectOptionalFresh runs the Optional Subsystems stage on a fresh (or
 // fully rewritten) .env: the Media Server choice and the Bot keys are
 // asked in full; an empty answer skips each.
-func collectOptionalFresh(pr *prompter, check DiscordChecker) (optionalStage, error) {
+func collectOptionalFresh(pr *prompter, check DiscordChecker, jellyfin JellyfinChecker) (optionalStage, error) {
 	var s optionalStage
 	s.env = Env{}
 
@@ -162,6 +209,20 @@ func collectOptionalFresh(pr *prompter, check DiscordChecker) (optionalStage, er
 		return s, err
 	}
 	s.media = media
+
+	// Jellyfin provisioning integration (ticket #31): offered only when
+	// the chosen Media Server is Jellyfin; an empty token answer leaves
+	// the keys unset, which is the integration being off.
+	if media == profileJellyfin {
+		tok, url, err := pr.askJellyfinIntegration(defaultJellyfinURL, jellyfin)
+		if err != nil {
+			return s, err
+		}
+		if tok != "" {
+			s.env["JELLYFIN_API_TOKEN"] = tok
+			s.env["JELLYFIN_URL"] = url
+		}
+	}
 
 	tok, err := pr.askBotToken(botExplanation, check)
 	if err != nil {
@@ -185,7 +246,7 @@ func collectOptionalFresh(pr *prompter, check DiscordChecker) (optionalStage, er
 // collectOptionalRerun runs the Optional Subsystems stage against an
 // existing valid .env: only what is missing is asked, a skipped question
 // keeps the previous value, and the Media Server can be switched.
-func collectOptionalRerun(pr *prompter, out io.Writer, e Env, check DiscordChecker) (optionalStage, error) {
+func collectOptionalRerun(pr *prompter, out io.Writer, e Env, check DiscordChecker, jellyfin JellyfinChecker) (optionalStage, error) {
 	var s optionalStage
 	s.env = Env{}
 	old := e["COMPOSE_PROFILES"]
@@ -220,6 +281,32 @@ func collectOptionalRerun(pr *prompter, out io.Writer, e Env, check DiscordCheck
 			return s, err
 		}
 		s.media = m
+	}
+
+	// Jellyfin provisioning integration: offered only while the token is
+	// unset — a configured integration is kept untouched, and a rerun can
+	// add it later exactly once. The runtime check (the api side) also
+	// names the Media Server, so keys left over after a switch to Plex
+	// stay inert.
+	if s.media == profileJellyfin && e["JELLYFIN_API_TOKEN"] == "" {
+		// USER-FACING
+		add, err := pr.askYesNo("Enable Jellyfin provisioning (approving a registration also creates the matching Jellyfin user)?")
+		if err != nil {
+			return s, err
+		}
+		if add {
+			jtok, jurl, err := pr.askJellyfinIntegration(defaultJellyfinURL, jellyfin)
+			if err != nil {
+				return s, err
+			}
+			if jtok != "" {
+				s.env["JELLYFIN_API_TOKEN"] = jtok
+				s.env["JELLYFIN_URL"] = jurl
+			} else {
+				// USER-FACING
+				fmt.Fprintln(out, "No token given — Jellyfin provisioning stays off.")
+			}
+		}
 	}
 
 	// Bot: only the missing keys are asked; present values are kept.
@@ -411,6 +498,82 @@ func (p *prompter) askBotToken(explanation string, check DiscordChecker) (string
 	}
 }
 
+// askJellyfinIntegration prompts for the Jellyfin provisioning
+// integration's two keys, mirroring the Discord token check's shape
+// (ticket #31): the API token first — an empty answer skips the whole
+// integration — then the URL, pre-filled with the documented default.
+// The token is live-validated against Jellyfin's /System/Info at the
+// entered URL: a 401 is Jellyfin's definitive "unknown token" and is
+// treated as a rejectable typo (the token is asked again, the URL kept);
+// when Jellyfin cannot be reached — this machine may be offline, or the
+// URL may be wrong — the operator may accept the token deliberately after
+// being told exactly that. Returns ("", "", nil) when skipped.
+func (p *prompter) askJellyfinIntegration(defaultURL string, check JellyfinChecker) (string, string, error) {
+	p.explain(jellyfinIntegrationExplanation)
+	target := ""
+	for {
+		// USER-FACING
+		p.printf("JELLYFIN_API_TOKEN (empty = no automatic Jellyfin provisioning): ")
+		line, err := p.readLine()
+		if err != nil {
+			return "", "", err
+		}
+		tok := trimSpace(line)
+		if tok == "" {
+			return "", "", nil
+		}
+		if err := rejectChangeMe("JELLYFIN_API_TOKEN", tok); err != nil {
+			// USER-FACING
+			p.printf("  %v\n", err)
+			continue
+		}
+		// The URL is asked once, after a real token exists — a skip
+		// never pays for it.
+		if target == "" {
+			// USER-FACING
+			url, err := p.askText(
+				"JELLYFIN_URL (empty = the documented default "+defaultURL+")",
+				"", ValidateJellyfinURLOptional,
+			)
+			if err != nil {
+				return "", "", err
+			}
+			target = url
+			if target == "" {
+				target = defaultURL
+			}
+		}
+		status, cerr := check.CheckToken(target, tok)
+		switch {
+		case cerr != nil:
+			// USER-FACING
+			p.printf("  Jellyfin could not be reached to check the token (%v). This machine may be offline, or the URL may be wrong; you can accept the token unverified and continue deliberately.\n", cerr)
+			ok, aerr := p.askYesNo("Accept the token without checking and continue?")
+			if aerr != nil {
+				return "", "", aerr
+			}
+			if ok {
+				return tok, target, nil
+			}
+		case status == http.StatusUnauthorized:
+			// USER-FACING
+			p.printf("  Jellyfin rejected that token (401 unauthorized) — a typo? Enter it again, or leave empty to skip the integration.\n")
+		case status != http.StatusOK:
+			// USER-FACING
+			p.printf("  Jellyfin answered %d instead of 200, so the token could not be confirmed.\n", status)
+			ok, aerr := p.askYesNo("Accept the token anyway and continue?")
+			if aerr != nil {
+				return "", "", aerr
+			}
+			if ok {
+				return tok, target, nil
+			}
+		default:
+			return tok, target, nil
+		}
+	}
+}
+
 // askBotChannel prompts for DISCORD_ANNOUNCE_CHANNEL_ID. The channel is
 // optional: an empty answer is valid and means the Bot runs without
 // announcements. A typed answer must be a channel ID.
@@ -470,6 +633,18 @@ Copy ID) can be left empty to run the Bot without announcements, and a channel
 can be added later by rerunning ` + "`bitbeard setup`" + `.
 The token is checked against Discord's API as you enter it. Leave it empty
 to run without the Bot; it can be enabled later by rerunning ` + "`bitbeard setup`" + `.
+`
+
+// USER-FACING
+const jellyfinIntegrationExplanation = `Optional: when the integration is on, approving a Registration Request also
+creates the matching Jellyfin user (same username) on this server, with a
+random password the user replaces later from the Webui — the password is
+never shown to anyone. It takes two values:
+  - JELLYFIN_API_TOKEN: from Jellyfin's Dashboard -> API Keys.
+  - JELLYFIN_URL: where the api container reaches this server; the default
+    is right for the bundled setup. The token is checked against the server
+    as you enter it. Leave the token empty to run without the integration;
+    it can be enabled later by rerunning ` + "`bitbeard setup`" + `.
 `
 
 // USER-FACING

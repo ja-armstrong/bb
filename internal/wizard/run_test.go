@@ -69,9 +69,15 @@ func makeStackDir(t *testing.T) string {
 const fallbackEnvExample = "JACKETT_API_KEY=examplejackettkey\nQBITTORRENT_USERNAME=admin\nQBITTORRENT_PASSWORD=adminadmin\nADMIN_USER=admin\nDATABASE_PATH=/data/bitbeard.db\nAPI_URL=http://127.0.0.1:9870\nMANAGER_URL=http://127.0.0.1:9871\nBOT_URL=http://127.0.0.1:9872\n"
 
 // runWizard runs Run against a stack dir with scripted input. discord is
-// the DiscordChecker (nil means the real API — pass a fake whenever a bot
-// token is entered).
-func runWizard(t *testing.T, stackDir, input string, comp *fakeCompose, discord DiscordChecker) (string, Result, error) {
+// the DiscordChecker and jellyfin the JellyfinChecker (nil means the real
+// APIs — pass fakes whenever a token is entered).
+func runWizard(
+	t *testing.T,
+	stackDir, input string,
+	comp *fakeCompose,
+	discord DiscordChecker,
+	jellyfin ...JellyfinChecker,
+) (string, Result, error) {
 	t.Helper()
 	var out bytes.Buffer
 	res, err := Run(Options{
@@ -81,8 +87,18 @@ func runWizard(t *testing.T, stackDir, input string, comp *fakeCompose, discord 
 		Compose:  comp,
 		Rand:     newRand(),
 		Discord:  discord,
+		Jellyfin: firstJellyfin(jellyfin),
 	})
 	return out.String(), res, err
+}
+
+// firstJellyfin unwraps the variadic checker: empty means nil (the real
+// API), which is only ever right when no token is entered.
+func firstJellyfin(js []JellyfinChecker) JellyfinChecker {
+	if len(js) == 0 {
+		return nil
+	}
+	return js[0]
 }
 
 // healthyPS is ps output for the mandatory stack, all running.

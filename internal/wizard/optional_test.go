@@ -347,7 +347,7 @@ var ok200 = &fakeDiscord{resp: okDiscord}
 func TestRunFreshJellyfinAndBot(t *testing.T) {
 	stackDir := makeStackDir(t)
 	comp := &fakeCompose{psOut: healthyPSWith("bot", "jellyfin")}
-	input := airvpnMandatory() + "jellyfin\ntok-good\n123456789012345678\n"
+	input := airvpnMandatory() + "jellyfin\n\ntok-good\n123456789012345678\n"
 	out, res, err := runWizard(t, stackDir, input, comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
@@ -404,8 +404,9 @@ func TestRunRerunSwitchMediaServer(t *testing.T) {
 	writeValidEnv(t, stackDir, "plex", nil)
 	comp := &fakeCompose{psOut: healthyPSWith("jellyfin")}
 	// Change VPN provider? no. Change Media Server? yes -> choice 1
-	// (jellyfin). Bot disabled -> stay disabled.
-	out, res, err := runWizard(t, stackDir, "\ny\n1\n\n", comp, nil)
+	// (jellyfin). The provisioning offer is declined. Bot disabled ->
+	// stay disabled.
+	out, res, err := runWizard(t, stackDir, "\ny\n1\n\n\n", comp, nil)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -688,7 +689,9 @@ func TestRunRerunVerifiesOptionalDown(t *testing.T) {
 	stackDir := makeStackDir(t)
 	writeValidEnv(t, stackDir, "jellyfin", nil)
 	comp := newFakeCompose() // ps reports only the mandatory containers
-	_, res, err := runWizard(t, stackDir, "\n\n\n", comp, nil)
+	// No VPN switch, no media switch, no to the provisioning offer, no
+	// to enabling the Bot.
+	_, res, err := runWizard(t, stackDir, "\n\n\n\n", comp, nil)
 	if err == nil {
 		t.Fatal("Run succeeded although jellyfin is not running")
 	}

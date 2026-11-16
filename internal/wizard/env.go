@@ -32,7 +32,7 @@ var envSections = []envSection{
 	// USER-FACING
 	{"VPN / network", []string{"OPENVPN_USER", "OPENVPN_PASSWORD", "VPN_PROVIDER", "OPENVPN_CUSTOM_CONFIG", "SERVER_COUNTRIES", "TZ"}},
 	// USER-FACING
-	{"Media servers", []string{"PLEX_CLAIM"}},
+	{"Media servers", []string{"PLEX_CLAIM", "JELLYFIN_URL", "JELLYFIN_API_TOKEN"}},
 	// USER-FACING
 	{"Indexers and the torrent client (owned by the Download Manager)", []string{"JACKETT_API_KEY", "QBITTORRENT_USERNAME", "QBITTORRENT_PASSWORD", "BASE_DOWNLOAD_DIR"}},
 	// USER-FACING
@@ -79,6 +79,10 @@ var keyComments = map[string]string{
 	"COMPOSE_PROFILES": "# Which Optional Subsystems to boot, space-separated (bot, plex, jellyfin).\n# Managed by `bitbeard setup` and the Admin Panel; empty boots only the\n# mandatory Subsystems.",
 	// USER-FACING
 	"PLEX_CLAIM": "# Optional claim token for the Plex Subsystem. `bitbeard setup` never asks\n# for one — claim tokens expire within minutes — claim the server at\n# http://localhost:32400/web after boot instead.",
+	// USER-FACING
+	"JELLYFIN_URL": "# Where the api container reaches the Jellyfin server; the default is\n# right for the bundled setup (the host-published 8096, via host-gateway).",
+	// USER-FACING
+	"JELLYFIN_API_TOKEN": "# Optional Jellyfin provisioning integration (ticket #31): when set, approving\n# a Registration Request also creates the matching Jellyfin user (same\n# username, a random password the user replaces later from the Webui — the\n# password is never shown). The token comes from Jellyfin's Dashboard ->\n# API Keys. The integration is off while this is empty.",
 }
 
 // fallbackEnv is used for keys the wizard does not prompt for when the
@@ -95,6 +99,8 @@ var fallbackEnv = Env{
 	"DISCORD_BOT_TOKEN":           "",
 	"DISCORD_ANNOUNCE_CHANNEL_ID": "",
 	"PLEX_CLAIM":                  "",
+	"JELLYFIN_URL":                defaultJellyfinURL,
+	"JELLYFIN_API_TOKEN":          "",
 }
 
 // renderEnv renders e as the full .env contents: every key of envKeys in

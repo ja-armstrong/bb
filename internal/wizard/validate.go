@@ -6,6 +6,7 @@ package wizard
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -155,6 +156,23 @@ func ValidateServerCountries(v string) (string, error) {
 			// USER-FACING
 			return "", fmt.Errorf("SERVER_COUNTRIES is %q; use comma-separated country names without empty entries", v)
 		}
+	}
+	return v, nil
+}
+
+// ValidateJellyfinURLOptional accepts an empty answer (the documented
+// default applies) or a Jellyfin server's base URL: http(s) with a host,
+// no path rewriting — the client appends /System/Info and the user
+// endpoints itself.
+func ValidateJellyfinURLOptional(v string) (string, error) {
+	v = trimSpace(v)
+	if v == "" {
+		return "", nil
+	}
+	u, err := url.Parse(v)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		// USER-FACING
+		return "", fmt.Errorf("JELLYFIN_URL is %q; expected the Jellyfin server's base URL like http://host.docker.internal:8096", v)
 	}
 	return v, nil
 }

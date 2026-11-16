@@ -154,7 +154,18 @@ services:
       # Which Optional Subsystems the stack boots; the Admin Panel derives
       # its Media Server entry from the same source of truth.
       - COMPOSE_PROFILES=${COMPOSE_PROFILES}
+      # Optional Jellyfin provisioning on registration approval: on only
+      # when JELLYFIN_API_TOKEN is set (token from Jellyfin's Dashboard ->
+      # API Keys). The URL default reaches the host-published 8096 through
+      # the host gateway extra_host below.
+      - JELLYFIN_URL=${JELLYFIN_URL:-http://host.docker.internal:8096}
+      - JELLYFIN_API_TOKEN=${JELLYFIN_API_TOKEN:-}
       - OPENVPN_DIR=/openvpn
+    extra_hosts:
+      # The api container shares gluetun's netns but keeps its own /etc/
+      # hosts entry: JELLYFIN_URL's default resolves through the host
+      # gateway to the Jellyfin Subsystem's host-published port.
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/data
       # The VPN settings the Admin Panel writes (api.vpn): same directory
