@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <link rel="stylesheet" href="/style.css">
     <!-- USER-FACING -->
     <title>Bitbeard Admin</title>
 </head>
@@ -27,7 +28,7 @@
                 <input type="password" id="login-password" required autocomplete="current-password">
                 <!-- USER-FACING -->
                 <button type="submit">Log in</button>
-                <div id="login-message"></div>
+                <div id="login-message" aria-live="polite"></div>
             </form>
         </div>
 
@@ -89,13 +90,13 @@
                     <thead>
                         <tr>
                             <!-- USER-FACING -->
-                            <th>Timestamp</th>
+                            <th scope="col">Timestamp</th>
                             <!-- USER-FACING -->
-                            <th>Actor</th>
+                            <th scope="col">Actor</th>
                             <!-- USER-FACING -->
-                            <th>Action</th>
+                            <th scope="col">Action</th>
                             <!-- USER-FACING -->
-                            <th>Details</th>
+                            <th scope="col">Details</th>
                         </tr>
                     </thead>
                     <tbody id="audit-rows"></tbody>
@@ -154,28 +155,28 @@
                         <!-- USER-FACING -->
                         <button type="submit">Create Account</button>
                     </div>
-                    <div id="create-message"></div>
+                    <div id="create-message" aria-live="polite"></div>
                 </form>
                 <table>
                     <thead>
                         <tr>
                             <!-- USER-FACING -->
-                            <th>Username</th>
+                            <th scope="col">Username</th>
                             <!-- USER-FACING -->
-                            <th>Role</th>
+                            <th scope="col">Role</th>
                             <!-- USER-FACING -->
-                            <th>Status</th>
+                            <th scope="col">Status</th>
                             <!-- USER-FACING -->
-                            <th>Discord</th>
+                            <th scope="col">Discord</th>
                             <!-- USER-FACING -->
-                            <th>Storage Quota</th>
+                            <th scope="col">Storage Quota</th>
                             <!-- USER-FACING -->
-                            <th>Actions</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="user-rows"></tbody>
                 </table>
-                <div id="users-message"></div>
+                <div id="users-message" aria-live="polite"></div>
             </div>
 
             <div class="section page" id="page-subsystems" hidden>
@@ -185,18 +186,18 @@
                     <thead>
                         <tr>
                             <!-- USER-FACING -->
-                            <th>Subsystem</th>
+                            <th scope="col">Subsystem</th>
                             <!-- USER-FACING -->
-                            <th>State</th>
+                            <th scope="col">State</th>
                             <!-- USER-FACING -->
-                            <th>Reachability</th>
+                            <th scope="col">Reachability</th>
                             <!-- USER-FACING -->
-                            <th>Actions</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="service-rows"></tbody>
                 </table>
-                <div id="services-message"></div>
+                <div id="services-message" aria-live="polite"></div>
             </div>
 
             <div class="section page" id="page-files" hidden>
@@ -215,18 +216,18 @@
                     <thead>
                         <tr>
                             <!-- USER-FACING -->
-                            <th>Name</th>
+                            <th scope="col">Name</th>
                             <!-- USER-FACING -->
-                            <th>Type</th>
+                            <th scope="col">Type</th>
                             <!-- USER-FACING -->
-                            <th>Size</th>
+                            <th scope="col">Size</th>
                             <!-- USER-FACING -->
-                            <th>Actions</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="file-rows"></tbody>
                 </table>
-                <div id="files-message"></div>
+                <div id="files-message" aria-live="polite"></div>
             </div>
 
             <div class="section page" id="page-vpn" hidden>
@@ -260,22 +261,22 @@
                     </div>
                     <!-- USER-FACING -->
                     <button type="submit">Save &amp; apply (restarts gluetun)</button>
-                    <div id="vpn-config-message"></div>
+                    <div id="vpn-config-message" aria-live="polite"></div>
                 </form>
                 <table>
                     <thead>
                         <tr>
                             <!-- USER-FACING -->
-                            <th>Setting</th>
+                            <th scope="col">Setting</th>
                             <!-- USER-FACING -->
-                            <th>Value</th>
+                            <th scope="col">Value</th>
                         </tr>
                     </thead>
                     <tbody id="vpn-status-rows"></tbody>
                 </table>
                 <!-- USER-FACING -->
                 <button type="button" id="vpn-test">Test exit IP</button>
-                <div id="vpn-test-message"></div>
+                <div id="vpn-test-message" aria-live="polite"></div>
             </div>
         </div>
     </main>
@@ -840,13 +841,14 @@
                 <!-- USER-FACING -->
                 : `
                 <span class="inline-quota">
-                    <select data-quota-mode="${account.id}">
+                    <select data-quota-mode="${account.id}" aria-label="Storage Quota mode">
                         <option value="default">Default</option>
                         <option value="override">Override (GB)</option>
                         <option value="unlimited">Unlimited</option>
                     </select>
                     <input type="number" min="0" step="0.001"
                            data-quota-gb="${account.id}"
+                           aria-label="Override size in GB"
                            placeholder="GB" hidden>
                     <button data-action="set-quota" data-id="${account.id}">Set</button>
                 </span>`;
