@@ -140,7 +140,9 @@ type optionalStage struct {
 	// bot is whether the Bot should end up enabled.
 	bot bool
 	// env carries newly collected keys (DISCORD_BOT_TOKEN,
-	// DISCORD_ANNOUNCE_CHANNEL_ID) on top of what already existed.
+	// DISCORD_ANNOUNCE_CHANNEL_ID) on top of what already existed. An
+	// empty DISCORD_ANNOUNCE_CHANNEL_ID is a valid state: the Bot runs
+	// without announcements.
 	env Env
 	// profiles is the new COMPOSE_PROFILES value.
 	profiles string
@@ -246,13 +248,26 @@ func collectOptionalRerun(pr *prompter, out io.Writer, e Env, check DiscordCheck
 				}
 			}
 		} else if ch == "" {
-			// USER-FACING
-			fmt.Fprintln(out, "The Bot is enabled but DISCORD_ANNOUNCE_CHANNEL_ID is not set.")
-			nch, err := pr.askBotChannel(botChannelExplanation)
+			// A Bot without a channel is a normal state: announcements
+			// are simply off. The channel is offered plainly (the same
+			// way the Media Server switch is), not demanded; skipping
+			// keeps the announcement-free state.
+			add, err := pr.askYesNo("Add an announcement channel to the Bot? (it currently runs without announcements)")
 			if err != nil {
 				return s, err
 			}
-			s.env["DISCORD_ANNOUNCE_CHANNEL_ID"] = nch
+			if add {
+				nch, err := pr.askBotChannel(botChannelExplanation)
+				if err != nil {
+					return s, err
+				}
+				if nch != "" {
+					s.env["DISCORD_ANNOUNCE_CHANNEL_ID"] = nch
+				} else {
+					// USER-FACING
+					fmt.Fprintln(out, "Leaving the Bot without announcements.")
+				}
+			}
 		}
 	} else {
 		enable, err := pr.askYesNo("Enable the Bot (the Discord Frontend) now?")
@@ -274,7 +289,12 @@ func collectOptionalRerun(pr *prompter, out io.Writer, e Env, check DiscordCheck
 				}
 				s.bot = true
 				s.env["DISCORD_BOT_TOKEN"] = ntok
-				s.env["DISCORD_ANNOUNCE_CHANNEL_ID"] = nch
+				// An empty answer means "no announcements"; a skipped
+				// question never erases a previous choice, so an
+				// existing channel is only replaced by a real answer.
+				if nch != "" || ch == "" {
+					s.env["DISCORD_ANNOUNCE_CHANNEL_ID"] = nch
+				}
 			}
 		}
 	}
@@ -391,10 +411,11 @@ func (p *prompter) askBotToken(explanation string, check DiscordChecker) (string
 	}
 }
 
-// askBotChannel prompts for DISCORD_ANNOUNCE_CHANNEL_ID. Once the Bot is
-// enabled the channel is required, so an empty answer is asked again.
+// askBotChannel prompts for DISCORD_ANNOUNCE_CHANNEL_ID. The channel is
+// optional: an empty answer is valid and means the Bot runs without
+// announcements. A typed answer must be a channel ID.
 func (p *prompter) askBotChannel(explanation string) (string, error) {
-	return p.askText("DISCORD_ANNOUNCE_CHANNEL_ID", explanation, ValidateChannelID)
+	return p.askText("DISCORD_ANNOUNCE_CHANNEL_ID (empty = run without announcements)", explanation, ValidateChannelIDOptional)
 }
 
 // ValidateChannelID accepts a Discord channel ID: a snowflake, digits
@@ -414,6 +435,18 @@ func ValidateChannelID(v string) (string, error) {
 	return v, nil
 }
 
+// ValidateChannelIDOptional is ValidateChannelID with the empty answer
+// allowed: announcing is optional, so "" is a valid value meaning the
+// Bot runs without announcements. Anything non-empty must still be a
+// channel ID.
+func ValidateChannelIDOptional(v string) (string, error) {
+	v = trimSpace(v)
+	if v == "" {
+		return "", nil
+	}
+	return ValidateChannelID(v)
+}
+
 // Explanations shown before the Optional Subsystems questions.
 
 // USER-FACING
@@ -427,12 +460,14 @@ themselves expire within minutes, so the wizard never asks for one.
 `
 
 // USER-FACING
-const botExplanation = `The Bot is the Discord Frontend: it relays searches and announces finished
-Downloads in a channel you choose. Enabling it takes two values:
+const botExplanation = `The Bot is the Discord Frontend: it relays searches and can announce finished
+Downloads in a channel. Enabling it takes one value:
   - DISCORD_BOT_TOKEN: from https://discord.com/developers/applications —
     your application's Bot page, Reset Token.
-  - DISCORD_ANNOUNCE_CHANNEL_ID: the ID of the channel to announce in
-    (Discord: enable Developer Mode, right-click the channel, Copy ID).
+Announcing is optional: the channel to announce in (DISCORD_ANNOUNCE_CHANNEL_ID,
+the channel's ID — Discord: enable Developer Mode, right-click the channel,
+Copy ID) can be left empty to run the Bot without announcements, and a channel
+can be added later by rerunning ` + "`bitbeard setup`" + `.
 The token is checked against Discord's API as you enter it. Leave it empty
 to run without the Bot; it can be enabled later by rerunning ` + "`bitbeard setup`" + `.
 `
@@ -440,6 +475,8 @@ to run without the Bot; it can be enabled later by rerunning ` + "`bitbeard setu
 // USER-FACING
 const botChannelExplanation = `The channel the Bot announces finished Downloads in: the Discord channel's
 ID (Developer Mode, right-click the channel, Copy ID) — not its name and not
-an invite link. It cannot be truly checked before boot; if the Bot starts
-but stays silent, this is the first thing to re-check.
+an invite link. Leave empty to run the Bot without announcements; a channel
+can be added later by rerunning ` + "`bitbeard setup`" + `. It cannot be truly checked
+before boot; if the Bot announces but stays silent on completions, this is
+the first thing to re-check.
 `

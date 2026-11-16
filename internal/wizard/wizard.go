@@ -182,7 +182,11 @@ func Run(o Options) (Result, error) {
 				}
 			}
 
-			if err := boot(o, composeDir, out, &res, stage.profiles); err != nil {
+			// The .env in effect for the boot: the kept values with the
+			// prompted stage overlaid and the new profiles applied.
+			bootEnv := mergeEnv(e, stage.env)
+			bootEnv["COMPOSE_PROFILES"] = stage.profiles
+			if err := boot(o, composeDir, out, &res, bootEnv); err != nil {
 				return res, err
 			}
 			return res, nil
@@ -263,7 +267,7 @@ func Run(o Options) (Result, error) {
 		}
 	}
 
-	if err := boot(o, composeDir, out, &res, profiles); err != nil {
+	if err := boot(o, composeDir, out, &res, e); err != nil {
 		return res, err
 	}
 	return res, nil
@@ -585,9 +589,10 @@ func FindComposeDir(stackDir string) (string, error) {
 }
 
 // boot brings the stack up and verifies the mandatory Subsystems and any
-// enabled Optional Subsystems are running. profiles is the COMPOSE_PROFILES
-// value in effect.
-func boot(o Options, composeDir string, out io.Writer, res *Result, profiles string) error {
+// enabled Optional Subsystems are running. e is the .env in effect; its
+// COMPOSE_PROFILES value selects which Optional Subsystems are expected.
+func boot(o Options, composeDir string, out io.Writer, res *Result, e Env) error {
+	profiles := e["COMPOSE_PROFILES"]
 	comp := o.Compose
 	if comp == nil {
 		comp = DockerCompose{}
@@ -654,8 +659,13 @@ func boot(o Options, composeDir string, out io.Writer, res *Result, profiles str
 		fmt.Fprintln(out, "  Plex (Media Server): http://localhost:32400/web — sign in and claim this server there (no claim token was asked for, on purpose)")
 	}
 	if hasProfile(profiles, profileBot) {
-		// USER-FACING
-		fmt.Fprintln(out, "  Bot: running; it announces finished Downloads in DISCORD_ANNOUNCE_CHANNEL_ID (invite it to your server if it has not joined yet)")
+		if e["DISCORD_ANNOUNCE_CHANNEL_ID"] == "" {
+			// USER-FACING
+			fmt.Fprintln(out, "  Bot: running without announcements (DISCORD_ANNOUNCE_CHANNEL_ID is not set — add a channel by rerunning `bitbeard setup` if you want finished Downloads announced)")
+		} else {
+			// USER-FACING
+			fmt.Fprintln(out, "  Bot: running; it announces finished Downloads in DISCORD_ANNOUNCE_CHANNEL_ID (invite it to your server if it has not joined yet)")
+		}
 	}
 	// USER-FACING
 	fmt.Fprintln(out, "Note: VPN credentials cannot be truly checked before boot. If gluetun keeps restarting, re-check OPENVPN_USER and OPENVPN_PASSWORD with `docker compose logs gluetun` in the stack directory.")

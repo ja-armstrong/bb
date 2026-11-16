@@ -77,22 +77,30 @@ def create_app(config: Config | None = None, notifier=None) -> FastAPI:
     """Build the Bot app. ``config`` and ``notifier`` are injectable for tests.
 
     Without a notifier, one is built from the config: a real one wired to a
-    fresh Discord client when credentials exist, a silent stand-in when they
-    do not (the Bot stays up so the Optional Subsystem can start first).
+    fresh Discord client when a token exists — announcing only when a
+    channel is configured too, since announcing is optional — and a silent
+    stand-in when no token exists (the Bot stays up so the Optional
+    Subsystem can start first).
     """
     config = config or load_config()
 
     discord_client = None
     if notifier is None:
-        if config.discord_bot_token and config.announce_channel_id:
+        if config.discord_bot_token:
             discord_client = _build_discord_client(config)
             notifier = CompletionNotifier(
                 discord_client, config.announce_channel_id
             )
+            if not config.announce_channel_id:
+                logger.info(
+                    "DISCORD_ANNOUNCE_CHANNEL_ID is not set; announcements "
+                    "are off. The Bot runs without announcing finished "
+                    "Downloads — set the channel in .env and restart to "
+                    "enable them."
+                )
         else:
             logger.warning(
-                "DISCORD_BOT_TOKEN/DISCORD_ANNOUNCE_CHANNEL_ID not fully set; "
-                "Bot is idling without Discord."
+                "DISCORD_BOT_TOKEN is not set; Bot is idling without Discord."
             )
             notifier = NullNotifier()
 
@@ -131,16 +139,20 @@ def create_app(config: Config | None = None, notifier=None) -> FastAPI:
 
         Every event is accepted (the manager fails soft either way) but
         only Completion Events are announced, and only when Discord is
-        actually connected.
+        actually connected. When no channel is configured the
+        announcements-off notice was logged once at startup, so it is not
+        repeated per event; only the wholly-unconfigured stand-in notes
+        each dropped event.
         """
         if event.event != "completed":
             return {"announced": False}
         if not app.state.notifier.available:
-            logger.info(
-                "Completion Event for %r arrived while Discord is "
-                "unconfigured; not announced.",
-                event.torrent_name,
-            )
+            if isinstance(app.state.notifier, NullNotifier):
+                logger.info(
+                    "Completion Event for %r arrived while Discord is "
+                    "unconfigured; not announced.",
+                    event.torrent_name,
+                )
             return {"announced": False}
         await app.state.notifier.announce(event.torrent_name, event.category)
         return {"announced": True}

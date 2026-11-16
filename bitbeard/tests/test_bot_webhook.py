@@ -2,7 +2,12 @@
 
 The Download Manager mirrors Completion Events here; the Bot announces them
 to DISCORD_ANNOUNCE_CHANNEL_ID when its Discord client is connected.
+Announcing is optional (ticket #26): a Bot enabled with only a token runs
+without announcements, skipping them quietly after one startup notice.
 """
+
+import asyncio
+import logging
 
 from bot.config import Config
 from bot.main import create_app
@@ -135,6 +140,75 @@ def test_webhook_accepts_events_when_discord_is_unconfigured():
 
     assert response.status_code == 200
     assert response.json() == {"announced": False}
+
+
+class StubBuiltDiscordClient:
+    """Stand-in for the client create_app builds itself.
+
+    start() blocks until cancelled, the way a live gateway connection
+    does, so the app's lifespan has a task to run and to cancel.
+    """
+
+    def __init__(self):
+        self.started = False
+        self.closed = False
+        self._connected = asyncio.Event()
+
+    def is_closed(self):
+        return self.closed
+
+    def get_channel(self, channel_id):
+        return None
+
+    async def start(self, token):
+        self.started = True
+        await self._connected.wait()
+
+
+def test_bot_runs_without_a_channel_and_skips_announcements(monkeypatch, caplog):
+    # A token alone is enough to enable the Bot: the Discord client is
+    # built and started, but no announcement is posted anywhere.
+    stub = StubBuiltDiscordClient()
+    monkeypatch.setattr("bot.main._build_discord_client", lambda config: stub)
+    config = make_config(announce_channel_id=None)
+
+    with caplog.at_level(logging.INFO, logger="bot.main"):
+        with TestClient(create_app(config)) as client:
+            response = _post(client, COMPLETION)
+
+    assert response.status_code == 200
+    assert response.json() == {"announced": False}
+    assert stub.started
+
+    # Exactly one announcements-off notice, at startup — nothing per
+    # event, and no "unconfigured" complaint (the Bot is configured, only
+    # the channel is absent).
+    off = [r for r in caplog.records if "announcements are off" in r.getMessage()]
+    assert len(off) == 1
+    assert not [r for r in caplog.records if "unconfigured" in r.getMessage()]
+
+
+def test_app_wires_an_announcing_notifier_when_a_channel_is_set(monkeypatch):
+    # Token plus channel: the app builds its own client and a notifier
+    # that announces, as before.
+    stub = StubBuiltDiscordClient()
+    monkeypatch.setattr("bot.main._build_discord_client", lambda config: stub)
+
+    app = create_app(make_config())
+
+    from bot.notifier import CompletionNotifier
+
+    assert isinstance(app.state.notifier, CompletionNotifier)
+    assert app.state.notifier.available
+
+
+def test_completion_notifier_without_a_channel_skips_silently():
+    from bot.notifier import CompletionNotifier
+
+    notifier = CompletionNotifier(StubBuiltDiscordClient(), None)
+
+    assert notifier.available is False
+    asyncio.run(notifier.announce("Some Movie", "Movie"))  # no error, no send
 
 
 def test_webhook_only_announces_completion_events():

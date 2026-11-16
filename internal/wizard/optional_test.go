@@ -171,6 +171,64 @@ func TestValidateChannelID(t *testing.T) {
 	}
 }
 
+// TestValidateChannelIDOptional covers the optional variant: the empty
+// answer is valid (announcing is off), a typed answer must still be a
+// channel ID.
+func TestValidateChannelIDOptional(t *testing.T) {
+	for _, in := range []string{"", "   "} {
+		v, err := ValidateChannelIDOptional(in)
+		if err != nil || v != "" {
+			t.Errorf("ValidateChannelIDOptional(%q) = %q, %v, want empty nil", in, v, err)
+		}
+	}
+	if v, err := ValidateChannelIDOptional("123456789012345678"); err != nil || v != "123456789012345678" {
+		t.Errorf("ValidateChannelIDOptional = %q, %v", v, err)
+	}
+	if v, err := ValidateChannelIDOptional("  123  "); err != nil || v != "123" {
+		t.Errorf("ValidateChannelIDOptional trimmed = %q, %v", v, err)
+	}
+	for _, bad := range []string{"abc", "12 34", "change-me", "-1"} {
+		if _, err := ValidateChannelIDOptional(bad); err == nil {
+			t.Errorf("ValidateChannelIDOptional(%q) accepted", bad)
+		}
+	}
+}
+
+// TestAskBotChannelOptional covers the prompt: empty is a valid answer
+// (no announcements), a garbage answer is asked again, a real channel ID
+// is accepted.
+func TestAskBotChannelOptional(t *testing.T) {
+	v, err := runPromptBotChannel("\n")
+	if err != nil || v != "" {
+		t.Errorf("empty input: got %q err %v, want empty nil", v, err)
+	}
+
+	v, err = runPromptBotChannel("999888777666555444\n")
+	if err != nil || v != "999888777666555444" {
+		t.Errorf("channel input: got %q err %v", v, err)
+	}
+
+	out, err := runPrompt(t, "maybe-later\n123\n", func(p *prompter) error {
+		_, err := p.askBotChannel("explanation\n")
+		return err
+	})
+	if err != nil {
+		t.Fatalf("askBotChannel: %v", err)
+	}
+	if !strings.Contains(out, "expected the channel's ID") {
+		t.Errorf("garbage refusal missing:\n%s", out)
+	}
+	if !strings.Contains(out, "empty = run without announcements") {
+		t.Errorf("optional hint missing:\n%s", out)
+	}
+}
+
+func runPromptBotChannel(input string) (string, error) {
+	var out strings.Builder
+	p := newPrompter(strings.NewReader(input), &out)
+	return p.askBotChannel("explanation\n")
+}
+
 func TestAskBotTokenLiveValidation(t *testing.T) {
 	// Empty skips without calling Discord.
 	f := &fakeDiscord{resp: okDiscord}
@@ -497,6 +555,129 @@ func TestRunRerunBotEnabledWithoutTokenTurnsOff(t *testing.T) {
 	e := readEnvFile(t, stackDir)
 	if e["COMPOSE_PROFILES"] != "" {
 		t.Errorf("COMPOSE_PROFILES = %q, want empty (Bot off)", e["COMPOSE_PROFILES"])
+	}
+}
+
+// TestRunFreshBotWithoutChannel covers announcing-as-optional on a fresh
+// install: the Bot is enabled with only a token, the empty channel answer
+// is accepted as "run without announcements", and the boot summary says
+// so plainly.
+func TestRunFreshBotWithoutChannel(t *testing.T) {
+	stackDir := makeStackDir(t)
+	comp := &fakeCompose{psOut: healthyPSWith("bot")}
+	// Media Server skipped, token given, channel left empty.
+	input := airvpnMandatory() + "\ntok-good\n\n"
+	out, res, err := runWizard(t, stackDir, input, comp, ok200)
+	if err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out)
+	}
+	if !res.Booted {
+		t.Errorf("result = %+v, want booted", res)
+	}
+	e := readEnvFile(t, stackDir)
+	if e["COMPOSE_PROFILES"] != "bot" {
+		t.Errorf("COMPOSE_PROFILES = %q, want bot", e["COMPOSE_PROFILES"])
+	}
+	if e["DISCORD_BOT_TOKEN"] != "tok-good" {
+		t.Errorf("DISCORD_BOT_TOKEN = %q", e["DISCORD_BOT_TOKEN"])
+	}
+	if e["DISCORD_ANNOUNCE_CHANNEL_ID"] != "" {
+		t.Errorf("DISCORD_ANNOUNCE_CHANNEL_ID = %q, want empty", e["DISCORD_ANNOUNCE_CHANNEL_ID"])
+	}
+	if probs := e.Problems(); len(probs) > 0 {
+		t.Errorf("written .env invalid: %v", probs)
+	}
+	if !strings.Contains(out, "Bot: running without announcements") {
+		t.Errorf("announcements-off summary missing:\n%s", out)
+	}
+}
+
+// TestRunRerunBotWithoutChannelIsNormal covers the normal rerun of a Bot
+// enabled with only a token: no nag about the missing channel, the plain
+// offer defaults to no, nothing is rewritten, and the Bot stays enabled.
+func TestRunRerunBotWithoutChannelIsNormal(t *testing.T) {
+	stackDir := makeStackDir(t)
+	before := writeValidEnv(t, stackDir, "bot", Env{"DISCORD_BOT_TOKEN": "tok"})
+	comp := &fakeCompose{psOut: healthyPSWith("bot")}
+	// No VPN switch, no Media Server switch, no to the channel offer.
+	out, res, err := runWizard(t, stackDir, "\n\n\n", comp, ok200)
+	if err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out)
+	}
+	if res.WroteEnv {
+		t.Errorf("result = %+v, want .env untouched", res)
+	}
+	after, _ := os.ReadFile(filepath.Join(stackDir, "bitbeard", ".env"))
+	if string(after) != before {
+		t.Errorf("a no-nag rerun rewrote .env:\n%s", after)
+	}
+	if strings.Contains(out, "The Bot is enabled but DISCORD_ANNOUNCE_CHANNEL_ID is not set") {
+		t.Errorf("the rerun nagged about the missing channel:\n%s", out)
+	}
+	if !strings.Contains(out, "nothing was changed") {
+		t.Errorf("no-change note missing:\n%s", out)
+	}
+}
+
+// TestRunRerunBotChannelAddedLater covers providing a channel later: the
+// plain offer is accepted, the channel lands in .env, and the existing
+// token and profile are preserved.
+func TestRunRerunBotChannelAddedLater(t *testing.T) {
+	stackDir := makeStackDir(t)
+	writeValidEnv(t, stackDir, "bot", Env{"DISCORD_BOT_TOKEN": "tok"})
+	comp := &fakeCompose{psOut: healthyPSWith("bot")}
+	// No VPN switch, no Media Server switch, yes to the channel offer,
+	// then the channel.
+	out, res, err := runWizard(t, stackDir, "\n\ny\n999888777666555444\n", comp, ok200)
+	if err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out)
+	}
+	if !res.WroteEnv {
+		t.Errorf("result = %+v, want .env rewritten", res)
+	}
+	e := readEnvFile(t, stackDir)
+	if e["DISCORD_ANNOUNCE_CHANNEL_ID"] != "999888777666555444" {
+		t.Errorf("DISCORD_ANNOUNCE_CHANNEL_ID = %q", e["DISCORD_ANNOUNCE_CHANNEL_ID"])
+	}
+	if e["DISCORD_BOT_TOKEN"] != "tok" {
+		t.Errorf("the existing token was not preserved: %q", e["DISCORD_BOT_TOKEN"])
+	}
+	if e["COMPOSE_PROFILES"] != "bot" {
+		t.Errorf("COMPOSE_PROFILES = %q, want bot", e["COMPOSE_PROFILES"])
+	}
+	if !strings.Contains(out, "DISCORD_ANNOUNCE_CHANNEL_ID=999888777666555444") {
+		t.Errorf("channel not summarized:\n%s", out)
+	}
+}
+
+// TestRunRerunEnableBotWithoutChannel covers enabling the Bot on rerun
+// with a token and skipping the channel: the Bot ends up enabled and
+// announcement-free.
+func TestRunRerunEnableBotWithoutChannel(t *testing.T) {
+	stackDir := makeStackDir(t)
+	writeValidEnv(t, stackDir, "", nil)
+	comp := &fakeCompose{psOut: healthyPSWith("bot")}
+	// No VPN switch, no Media Server switch, enable the Bot (yes), token,
+	// channel left empty.
+	out, res, err := runWizard(t, stackDir, "\n\ny\ntok-late\n\n", comp, ok200)
+	if err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out)
+	}
+	if !res.WroteEnv {
+		t.Errorf("result = %+v, want .env rewritten", res)
+	}
+	e := readEnvFile(t, stackDir)
+	if e["COMPOSE_PROFILES"] != "bot" {
+		t.Errorf("COMPOSE_PROFILES = %q, want bot", e["COMPOSE_PROFILES"])
+	}
+	if e["DISCORD_BOT_TOKEN"] != "tok-late" {
+		t.Errorf("DISCORD_BOT_TOKEN = %q", e["DISCORD_BOT_TOKEN"])
+	}
+	if e["DISCORD_ANNOUNCE_CHANNEL_ID"] != "" {
+		t.Errorf("DISCORD_ANNOUNCE_CHANNEL_ID = %q, want empty", e["DISCORD_ANNOUNCE_CHANNEL_ID"])
+	}
+	if !strings.Contains(out, "Bot: running without announcements") {
+		t.Errorf("announcements-off summary missing:\n%s", out)
 	}
 }
 
