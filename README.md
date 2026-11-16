@@ -42,6 +42,14 @@ bitbeard --version   # prints the version and commit
 bitbeard help        # lists setup, doctor and update
 ```
 
+## Commands
+
+- `bitbeard setup` — first run and any rerun: installs prerequisites, fetches the stack
+  to `~/bitbeard`, asks for every key, boots, and verifies. Skipped optional
+  Subsystems (the Bot, a Media Server) can be enabled later by rerunning it.
+- `bitbeard doctor` — check-only: prerequisites, `.env` guardrails, stack health.
+- `bitbeard update` — pulls the stack, rebuilds, restarts, and runs doctor.
+
 ## Releasing
 
 Tagging a commit `v…` (e.g. `v0.1.0`) and pushing the tag triggers
