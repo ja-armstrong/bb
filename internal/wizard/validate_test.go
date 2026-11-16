@@ -24,7 +24,7 @@ func TestValidateProvider(t *testing.T) {
 			t.Errorf("provider id %q is not lowercase/trimmed", p.ID)
 		}
 	}
-	if !KnownVPNProvider(customProvider) || !KnownVPNProvider(nordvpnDefault) {
+	if !KnownVPNProvider(customProvider) || !KnownVPNProvider("nordvpn") {
 		t.Error("custom and nordvpn must both be known providers")
 	}
 }

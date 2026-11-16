@@ -1,10 +1,12 @@
-"""Tests for the Admin Panel's VPN page backing: ticket #10.
+"""Tests for the Admin Panel's VPN page backing: tickets #10 and #22.
 
 The settings live in ``openvpn/vpn.env`` next to the OpenVPN config the
-gluetun Subsystem mounts; a server change rewrites the config's server
-lines; applying the change is a gluetun restart. The egress probe runs
-from the API's shared (gluetun) network namespace, with the transport as
-the injected seam — no real network here.
+gluetun Subsystem mounts; in the custom provider's mode a server change
+rewrites the config's server lines (applied by a gluetun restart), in
+native mode the server is recorded in the settings file alone since
+gluetun picks its servers itself. Applying the change is a gluetun
+restart. The egress probe runs from the API's shared (gluetun) network
+namespace, with the transport as the injected seam — no real network here.
 """
 
 import os
@@ -111,28 +113,39 @@ def test_read_settings_fall_back_to_the_compose_provider(tmp_path):
     assert settings.provider == "nordvpn"
     assert settings.openvpn_user is None
     assert settings.openvpn_password is None
+    # Native mode: there is no config file in play, so no server is read
+    # out of one even when a leftover custom.ovpn sits on disk.
+    assert settings.server is None
+
+
+def test_read_settings_custom_mode_parses_the_config(tmp_path):
+    write_ovpn(str(tmp_path / "openvpn"))
+
+    settings = make_vpn(tmp_path, provider_fallback="custom").read_settings()
+
+    assert settings.provider == "custom"
     assert settings.server == "181.215.172.84"  # parsed from the config
 
 
 def test_update_settings_round_trips(tmp_path):
     ovpn = write_ovpn(str(tmp_path / "openvpn"))
-    vpn = make_vpn(tmp_path)
+    vpn = make_vpn(tmp_path, provider_fallback="custom")
 
     settings = vpn.update_settings(
-        provider="mullvad",
+        provider="custom",
         openvpn_user="sailor",
         openvpn_password="secret",
         server="de5.mullvad.net",
     )
 
-    assert settings.provider == "mullvad"
+    assert settings.provider == "custom"
     assert settings.openvpn_user == "sailor"
     assert settings.openvpn_password == "secret"
     assert settings.server == "de5.mullvad.net"
 
     # The settings file is the .env-style store of record.
     stored = read(os.path.join(str(tmp_path / "openvpn"), "vpn.env"))
-    assert "VPN_PROVIDER=mullvad" in stored
+    assert "VPN_PROVIDER=custom" in stored
     assert "OPENVPN_USER=sailor" in stored
     assert "OPENVPN_PASSWORD=secret" in stored
     assert "OPENVPN_SERVER=de5.mullvad.net" in stored
@@ -143,6 +156,27 @@ def test_update_settings_round_trips(tmp_path):
     assert "verify-x509-name CN=de5.mullvad.net" in config_text
     assert "181.215.172.84" not in config_text
     assert "CERTIFICATE" in config_text  # the rest of the file survived
+
+
+def test_native_server_change_stores_without_touching_the_config(tmp_path):
+    ovpn = write_ovpn(str(tmp_path / "openvpn"))
+    vpn = make_vpn(tmp_path, provider_fallback="nordvpn")
+
+    settings = vpn.update_settings(
+        provider="nordvpn",
+        openvpn_user="sailor",
+        openvpn_password="secret",
+        server="de5.mullvad.net",
+    )
+
+    # Native mode: credentials and the server are recorded in the settings
+    # file (the store of record); the leftover config file is untouched —
+    # gluetun picks its servers itself and never reads it.
+    assert settings.server == "de5.mullvad.net"
+    assert "OPENVPN_SERVER=de5.mullvad.net" in read(
+        os.path.join(str(tmp_path / "openvpn"), "vpn.env")
+    )
+    assert read(ovpn) == OVPN_TEMPLATE
 
 
 def test_update_without_a_server_leaves_the_config_alone(tmp_path):
@@ -172,7 +206,7 @@ def test_update_rewrites_a_config_without_a_remote_line(tmp_path):
         str(tmp_path / "openvpn"),
         text="client\ndev tun\n<ca>\nCERTIFICATE\n</ca>\n",
     )
-    vpn = make_vpn(tmp_path)
+    vpn = make_vpn(tmp_path, provider_fallback="custom")
 
     settings = vpn.update_settings(server="de5.mullvad.net")
 
@@ -231,9 +265,9 @@ def test_vpn_endpoints_refuse_the_user_role(tmp_path):
 
 def test_status_reports_provider_server_and_egress_ip(tmp_path):
     write_ovpn(str(tmp_path / "openvpn"))
-    config = make_config(tmp_path, vpn_provider="nordvpn")
+    config = make_config(tmp_path, vpn_provider="custom")
     egress = FakeEgress("198.51.100.9")
-    vpn = make_vpn(tmp_path, provider_fallback="nordvpn", egress=egress)
+    vpn = make_vpn(tmp_path, provider_fallback="custom", egress=egress)
 
     with make_client(config, vpn) as client:
         _login(client)
@@ -241,7 +275,7 @@ def test_status_reports_provider_server_and_egress_ip(tmp_path):
 
     assert response.status_code == 200
     assert response.json() == {
-        "provider": "nordvpn",
+        "provider": "custom",
         "openvpn_user": None,
         "server": "181.215.172.84",
         "egress_ip": "198.51.100.9",
@@ -273,7 +307,7 @@ def test_config_round_trip_writes_and_reads(tmp_path):
         response = client.post(
             "/admin/vpn/config",
             json={
-                "provider": "mullvad",
+                "provider": "custom",
                 "openvpn_user": "sailor",
                 "openvpn_password": "secret",
                 "server": "de5.mullvad.net",
@@ -283,14 +317,14 @@ def test_config_round_trip_writes_and_reads(tmp_path):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["provider"] == "mullvad"
+    assert body["provider"] == "custom"
     assert body["openvpn_user"] == "sailor"
     assert body["server"] == "de5.mullvad.net"
     assert "secret" not in response.text  # never echoed back
 
-    assert status.json()["provider"] == "mullvad"
+    assert status.json()["provider"] == "custom"
     assert status.json()["server"] == "de5.mullvad.net"
-    assert "VPN_PROVIDER=mullvad" in read(
+    assert "VPN_PROVIDER=custom" in read(
         os.path.join(str(tmp_path / "openvpn"), "vpn.env")
     )
     assert "remote de5.mullvad.net 1194" in read(

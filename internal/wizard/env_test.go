@@ -87,14 +87,15 @@ func TestWriteEnvFileRoundTripIsValid(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".env")
 	e := mergeEnv(fallbackEnv, Env{
-		"VPN_PROVIDER":      "custom",
-		"TZ":                "UTC",
-		"SERVICE_TOKEN":     "tok",
-		"ADMIN_PASSWORD":    "pw",
-		"DEFAULT_QUOTA_GB":  "50",
-		"SESSION_TTL_HOURS": "24",
-		"BASE_DOWNLOAD_DIR": "/media",
-		"COMPOSE_PROFILES":  "",
+		"VPN_PROVIDER":          "custom",
+		"OPENVPN_CUSTOM_CONFIG": customConfigMountPath,
+		"TZ":                    "UTC",
+		"SERVICE_TOKEN":         "tok",
+		"ADMIN_PASSWORD":        "pw",
+		"DEFAULT_QUOTA_GB":      "50",
+		"SESSION_TTL_HOURS":     "24",
+		"BASE_DOWNLOAD_DIR":     "/media",
+		"COMPOSE_PROFILES":      "",
 	})
 	if err := writeEnvFile(path, e); err != nil {
 		t.Fatalf("writeEnvFile: %v", err)
@@ -177,7 +178,27 @@ func TestEnvProblemsDetectsAllCases(t *testing.T) {
 		{"bad ttl", func(e Env) { e["SESSION_TTL_HOURS"] = "0" }, "SESSION_TTL_HOURS"},
 		{"bad tz", func(e Env) { e["TZ"] = "Berlin" }, "TZ"},
 		{"relative base dir", func(e Env) { e["BASE_DOWNLOAD_DIR"] = "media" }, "BASE_DOWNLOAD_DIR"},
-		{"empty creds ok with custom", func(e Env) { e["VPN_PROVIDER"] = "custom"; e["OPENVPN_USER"] = ""; e["OPENVPN_PASSWORD"] = "" }, ""},
+		{"empty creds ok with custom", func(e Env) {
+			e["VPN_PROVIDER"] = "custom"
+			e["OPENVPN_USER"] = ""
+			e["OPENVPN_PASSWORD"] = ""
+			e["OPENVPN_CUSTOM_CONFIG"] = customConfigMountPath
+		}, ""},
+		{"custom without a config", func(e Env) { e["VPN_PROVIDER"] = "custom"; e["OPENVPN_USER"] = ""; e["OPENVPN_PASSWORD"] = "" }, "OPENVPN_CUSTOM_CONFIG is empty"},
+		{"custom with a relative config", func(e Env) {
+			e["VPN_PROVIDER"] = "custom"
+			e["OPENVPN_USER"] = ""
+			e["OPENVPN_PASSWORD"] = ""
+			e["OPENVPN_CUSTOM_CONFIG"] = "openvpn/custom.ovpn"
+		}, "absolute path"},
+		{"stale config with a known provider", func(e Env) { e["OPENVPN_CUSTOM_CONFIG"] = customConfigMountPath }, "OPENVPN_CUSTOM_CONFIG is set"},
+		{"stale server countries with custom", func(e Env) {
+			e["VPN_PROVIDER"] = "custom"
+			e["OPENVPN_USER"] = ""
+			e["OPENVPN_PASSWORD"] = ""
+			e["OPENVPN_CUSTOM_CONFIG"] = customConfigMountPath
+			e["SERVER_COUNTRIES"] = "Netherlands"
+		}, "SERVER_COUNTRIES"},
 	}
 	for _, tt := range tests {
 		e := base()

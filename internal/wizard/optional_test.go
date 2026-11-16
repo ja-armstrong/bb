@@ -345,8 +345,9 @@ func TestRunRerunSwitchMediaServer(t *testing.T) {
 	stackDir := makeStackDir(t)
 	writeValidEnv(t, stackDir, "plex", nil)
 	comp := &fakeCompose{psOut: healthyPSWith("jellyfin")}
-	// Change? yes -> choice 1 (jellyfin). Bot disabled -> stay disabled.
-	out, res, err := runWizard(t, stackDir, "y\n1\n\n", comp, nil)
+	// Change VPN provider? no. Change Media Server? yes -> choice 1
+	// (jellyfin). Bot disabled -> stay disabled.
+	out, res, err := runWizard(t, stackDir, "\ny\n1\n\n", comp, nil)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -374,8 +375,9 @@ func TestRunRerunSkipKeepsExisting(t *testing.T) {
 	stackDir := makeStackDir(t)
 	before := writeValidEnv(t, stackDir, "plex", nil)
 	comp := &fakeCompose{psOut: healthyPSWith("plex")}
-	// No to the Media Server switch, no to enabling the Bot.
-	out, res, err := runWizard(t, stackDir, "\n\n", comp, nil)
+	// No to the VPN provider switch, the Media Server switch and enabling
+	// the Bot.
+	out, res, err := runWizard(t, stackDir, "\n\n\n", comp, nil)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -400,7 +402,7 @@ func TestRunRerunSkipKeepsExisting(t *testing.T) {
 		"DISCORD_ANNOUNCE_CHANNEL_ID": "123",
 	})
 	comp = &fakeCompose{psOut: healthyPSWith("bot", "plex")}
-	out, res, err = runWizard(t, stackDir, "\n\n", comp, ok200)
+	out, res, err = runWizard(t, stackDir, "\n\n\n", comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -423,8 +425,9 @@ func TestRunRerunPromptsOnlyMissing(t *testing.T) {
 	stackDir := makeStackDir(t)
 	writeValidEnv(t, stackDir, "", nil)
 	comp := &fakeCompose{psOut: healthyPSWith("bot")}
-	// Keep Media Server (no), enable the Bot (yes), token, channel.
-	out, res, err := runWizard(t, stackDir, "\ny\ntok-rerun\n123456789012345678\n", comp, ok200)
+	// Keep Media Server (no), enable the Bot (yes), token, channel. The
+	// leading answer declines the VPN provider switch.
+	out, res, err := runWizard(t, stackDir, "\n\ny\ntok-rerun\n123456789012345678\n", comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -456,8 +459,8 @@ func TestRunRerunMissingBotTokenOnly(t *testing.T) {
 	stackDir := makeStackDir(t)
 	writeValidEnv(t, stackDir, "bot", Env{"DISCORD_ANNOUNCE_CHANNEL_ID": "123456789012345678"})
 	comp := &fakeCompose{psOut: healthyPSWith("bot")}
-	// No media switch, then the token.
-	out, res, err := runWizard(t, stackDir, "\ntok-late\n", comp, ok200)
+	// No VPN switch, no media switch, then the token.
+	out, res, err := runWizard(t, stackDir, "\n\ntok-late\n", comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -486,8 +489,8 @@ func TestRunRerunBotEnabledWithoutTokenTurnsOff(t *testing.T) {
 	stackDir := makeStackDir(t)
 	writeValidEnv(t, stackDir, "bot", nil)
 	comp := newFakeCompose()
-	// No media switch, no token.
-	_, _, err := runWizard(t, stackDir, "\n\n", comp, ok200)
+	// No VPN switch, no media switch, no token.
+	_, _, err := runWizard(t, stackDir, "\n\n\n", comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -504,7 +507,7 @@ func TestRunRerunVerifiesOptionalDown(t *testing.T) {
 	stackDir := makeStackDir(t)
 	writeValidEnv(t, stackDir, "jellyfin", nil)
 	comp := newFakeCompose() // ps reports only the mandatory containers
-	_, res, err := runWizard(t, stackDir, "\n\n", comp, nil)
+	_, res, err := runWizard(t, stackDir, "\n\n\n", comp, nil)
 	if err == nil {
 		t.Fatal("Run succeeded although jellyfin is not running")
 	}

@@ -43,9 +43,29 @@ var VPNProviders = []VPNProvider{
 // gluetun's "custom" provider.
 const customProvider = "custom"
 
-// nordvpnDefault is the provider of the openvpn/custom.ovpn file bundled
-// with the stack.
-const nordvpnDefault = "nordvpn"
+// customConfigEnvKey is the .env key carrying the OpenVPN config file
+// gluetun reads in custom mode (gluetun's OPENVPN_CUSTOM_CONFIG, a file
+// path as the gluetun container sees it). It is only meaningful when
+// VPN_PROVIDER=custom; gluetun ignores it otherwise.
+const customConfigEnvKey = "OPENVPN_CUSTOM_CONFIG"
+
+// customConfigMountPath is customConfigEnvKey's value in custom mode: the
+// copied .ovpn file inside the container, through the stack's
+// ./openvpn:/gluetun/openvpn mount.
+const customConfigMountPath = "/gluetun/openvpn/custom.ovpn"
+
+// serverCountriesEnvKey is gluetun's optional server-selection key for
+// known providers (comma-separated country names; empty = gluetun picks a
+// server itself). Verified against gluetun's configuration settings: an
+// empty-but-set value is treated like an unset one, so leaving it empty in
+// .env never constrains the server pick.
+const serverCountriesEnvKey = "SERVER_COUNTRIES"
+
+// isCustomProvider reports whether a VPN_PROVIDER value selects the
+// bring-your-own-.ovpn custom provider.
+func isCustomProvider(id string) bool {
+	return normalizeProvider(id) == customProvider
+}
 
 // KnownVPNProvider reports whether id names a provider gluetun supports,
 // case-insensitive, including the "custom" pseudo-provider.

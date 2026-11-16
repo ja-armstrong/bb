@@ -86,7 +86,7 @@ func TestAskProviderByNumberNameAndRefusal(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if pv.ID != nordvpnDefault {
+		if pv.ID != "nordvpn" {
 			t.Errorf("got %q, want nordvpn", pv.ID)
 		}
 		return nil

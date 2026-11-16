@@ -30,7 +30,7 @@ type envSection struct {
 // behaves like the documented manual install (a copy of .env.example).
 var envSections = []envSection{
 	// USER-FACING
-	{"VPN / network", []string{"OPENVPN_USER", "OPENVPN_PASSWORD", "VPN_PROVIDER", "TZ"}},
+	{"VPN / network", []string{"OPENVPN_USER", "OPENVPN_PASSWORD", "VPN_PROVIDER", "OPENVPN_CUSTOM_CONFIG", "SERVER_COUNTRIES", "TZ"}},
 	// USER-FACING
 	{"Media servers", []string{"PLEX_CLAIM"}},
 	// USER-FACING
@@ -63,6 +63,10 @@ var openvpnCredsKeys = []string{"OPENVPN_USER", "OPENVPN_PASSWORD"}
 var keyComments = map[string]string{
 	// USER-FACING
 	"SERVICE_TOKEN": "# Shared bearer token for API <-> Download Manager and manager -> Bot webhook.",
+	// USER-FACING
+	"OPENVPN_CUSTOM_CONFIG": "# Custom provider only: the .ovpn file gluetun should connect through, as the\n# gluetun container sees it (`bitbeard setup` writes /gluetun/openvpn/custom.ovpn).\n# Known providers leave it empty: gluetun then runs natively with no config file.",
+	// USER-FACING
+	"SERVER_COUNTRIES": "# Optional server selection for known providers: comma-separated country\n# names, as gluetun spells them. Empty = gluetun picks a server for you.",
 	// USER-FACING
 	"ADMIN_PASSWORD": "# Bootstrap Admin seeded by the API on first boot; log in with ADMIN_USER and this.",
 	// USER-FACING
@@ -202,7 +206,7 @@ func (e Env) Problems() []string {
 	}
 
 	// OpenVPN credentials: required unless the custom .ovpn path is chosen.
-	if prov != customProvider {
+	if !isCustomProvider(prov) {
 		for _, k := range openvpnCredsKeys {
 			v, ok := e[k]
 			switch {
@@ -217,6 +221,27 @@ func (e Env) Problems() []string {
 				probs = append(probs, fmt.Sprintf("%s still carries its change-me placeholder; set a real value", k))
 			}
 		}
+	}
+
+	// The custom .ovpn config: required in custom mode, stale anywhere
+	// else (gluetun only reads it when VPN_PROVIDER=custom).
+	cfg := e[customConfigEnvKey]
+	switch {
+	case isCustomProvider(prov) && cfg == "":
+		// USER-FACING
+		probs = append(probs, fmt.Sprintf("%s is empty; it is required when VPN_PROVIDER=%s (the .ovpn file as the gluetun container sees it)", customConfigEnvKey, customProvider))
+	case isCustomProvider(prov) && !strings.HasPrefix(cfg, "/"):
+		// USER-FACING
+		probs = append(probs, fmt.Sprintf("%s is %q; expected an absolute path as the gluetun container sees it, like %s", customConfigEnvKey, cfg, customConfigMountPath))
+	case !isCustomProvider(prov) && cfg != "":
+		// USER-FACING
+		probs = append(probs, fmt.Sprintf("%s is set but VPN_PROVIDER is %q; gluetun only reads that file when VPN_PROVIDER=%s, so clear it or switch the provider", customConfigEnvKey, e["VPN_PROVIDER"], customProvider))
+	}
+
+	// Server selection only filters the servers of a known provider.
+	if e[serverCountriesEnvKey] != "" && isCustomProvider(prov) {
+		// USER-FACING
+		probs = append(probs, fmt.Sprintf("%s is set but VPN_PROVIDER=%s connects through its .ovpn file and ignores it; clear it", serverCountriesEnvKey, customProvider))
 	}
 
 	// Counts.

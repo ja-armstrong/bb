@@ -1358,11 +1358,15 @@ def create_app(
             json={"path": request.path, "target_dir": request.target_dir},
         )
 
-    # --- VPN (ticket #10) -----------------------------------------------------
+    # --- VPN (tickets #10 and #22) --------------------------------------------
     #
     # The settings live in the openvpn directory the gluetun Subsystem
     # mounts (api.vpn); the panel restarts gluetun through the existing
-    # Subsystems endpoint to apply them.
+    # Subsystems endpoint to apply them. In the custom provider's mode the
+    # server-lines rewrite reaches gluetun on that restart; in native mode
+    # and for provider/credential changes in both modes, the operator
+    # mirrors the settings into the compose .env and runs `docker compose
+    # up` (a container's env is fixed at creation).
 
     def vpn_view(settings: VpnSettings) -> dict:
         """The settings a Frontend may see — never the password."""
@@ -1405,10 +1409,13 @@ def create_app(
     ):
         """Edit the VPN provider, credentials and server — audited.
 
-        Writes the panel's settings file and, when the server changes, the
-        OpenVPN config's server lines. Applying the change needs a gluetun
-        restart; the panel invokes the existing Subsystems endpoint right
-        after this succeeds.
+        Writes the panel's settings file and, when the provider is the
+        custom one, the OpenVPN config's server lines (a gluetun restart
+        re-reads that file). In native mode there is no config file in
+        play: the server is recorded in the settings file for the operator
+        to carry into the compose .env, like provider and credential
+        changes in both modes. The panel invokes the existing Subsystems
+        endpoint right after this succeeds.
         """
         settings = vpn.update_settings(
             provider=valid_vpn_field(request.provider, "provider"),

@@ -9,13 +9,22 @@ is a settings file next to the OpenVPN config the gluetun Subsystem mounts:
   ``OPENVPN_USER``, ``OPENVPN_PASSWORD``, ``OPENVPN_SERVER``). It is the
   store of record for panel edits; the compose ``.env`` seeds the first
   provider via the ``VPN_PROVIDER`` fallback.
-- ``openvpn/custom.ovpn`` — gluetun's OpenVPN config. When the panel sets a
-  server, the ``remote`` and ``verify-x509-name`` lines are rewritten so a
-  **container restart** picks the new server up (gluetun re-launches
-  OpenVPN — and re-reads the config file — on restart; the container's
-  environment is fixed at creation, so provider/credential changes are
-  applied on the next ``docker compose up`` after a host-side ``.env``
-  update. The panel restarts gluetun after every save either way).
+- ``openvpn/custom.ovpn`` — gluetun's OpenVPN config **in the custom
+  provider's mode only**. When the panel sets a server while the provider
+  is ``custom``, the ``remote`` and ``verify-x509-name`` lines are
+  rewritten so a **container restart** picks the new server up (gluetun
+  re-launches OpenVPN — and re-reads the config file — on restart). In
+  native mode (any known provider) there is no config file to rewrite:
+  gluetun picks its servers itself from ``VPN_SERVICE_PROVIDER`` plus
+  optional ``SERVER_COUNTRIES``-style selection, and a panel-set server is
+  recorded in the settings file for the operator to carry into the compose
+  ``.env``.
+
+In both modes, provider/credential changes are stored in ``vpn.env`` and
+reach gluetun's environment on the next ``docker compose up`` after the
+operator mirrors them into the host-side compose ``.env`` (a container's
+environment is fixed at creation). The panel restarts gluetun after every
+save either way.
 
 Every container in the stack rides gluetun's network namespace
 (``network_mode: service:gluetun``), so the API's own egress *is* the VPN
@@ -62,14 +71,21 @@ class VpnSettings:
     """The VPN configuration as the panel sees it.
 
     ``provider`` falls back to the compose ``.env`` value until the panel
-    writes its own; ``server`` comes from the settings file when set, or
-    from the OpenVPN config's ``remote`` line when not.
+    writes its own. ``server`` comes from the settings file when set; in
+    the custom provider's mode it otherwise comes from the OpenVPN
+    config's ``remote`` line, since there the config file is what gluetun
+    reads.
     """
 
     provider: str | None
     openvpn_user: str | None
     openvpn_password: str | None
     server: str | None
+
+
+#: The VPN_PROVIDER value of the bring-your-own-.ovpn flow: the only mode
+#: in which gluetun reads a config file the panel can rewrite.
+CUSTOM_PROVIDER = "custom"
 
 
 def _default_egress_transport(url: str) -> str | None:
@@ -89,10 +105,11 @@ class VpnControl:
     """Read/write the VPN settings and probe the egress IP.
 
     Deep module: callers name settings and get settings back; the file
-    format, the OpenVPN config rewrite and the probe plumbing stay inside.
-    ``openvpn_dir`` is the directory the compose file mounts the host's
-    ``./openvpn`` into; ``provider_fallback`` is the ``VPN_PROVIDER`` the
-    compose ``.env`` seeded.
+    format, the mode split (custom provider vs native), the OpenVPN config
+    rewrite and the probe plumbing stay inside. ``openvpn_dir`` is the
+    directory the compose file mounts the host's ``./openvpn`` into;
+    ``provider_fallback`` is the ``VPN_PROVIDER`` the compose ``.env``
+    seeded.
     """
 
     def __init__(
@@ -116,7 +133,12 @@ class VpnControl:
         """The current settings: file values, fallbacks applied."""
         stored = self._read_env_file(self._settings_path)
         provider = stored.get("VPN_PROVIDER") or self._provider_fallback
-        server = stored.get("OPENVPN_SERVER") or self._config_server()
+        server = stored.get("OPENVPN_SERVER")
+        if server is None and provider == CUSTOM_PROVIDER:
+            # Custom mode: the config file is what gluetun reads, so the
+            # remote line is the effective server until the panel writes
+            # one. Native mode has no config file in play.
+            server = self._config_server()
         return VpnSettings(
             provider=provider or None,
             openvpn_user=stored.get("OPENVPN_USER"),
@@ -135,23 +157,28 @@ class VpnControl:
         server: str | None = None,
     ) -> VpnSettings:
         """Merge the given settings into the file; rewrite the config's
-        server lines when the server changes.
+        server lines when the server changes in the custom provider's
+        mode.
 
         Fields left as ``None`` are untouched, so a panel edit that only
         changes the provider does not clobber the credentials.
         """
-        changes = {
+        stored = self._read_env_file(self._settings_path)
+        for key, value in {
             "VPN_PROVIDER": provider,
             "OPENVPN_USER": openvpn_user,
             "OPENVPN_PASSWORD": openvpn_password,
             "OPENVPN_SERVER": server,
-        }
-        stored = self._read_env_file(self._settings_path)
-        for key, value in changes.items():
+        }.items():
             if value is not None:
                 stored[key] = value.strip()
+        # The server-lines rewrite is the custom mode's apply path (a
+        # gluetun restart re-reads the file). In native mode gluetun picks
+        # servers itself and there is no config file in play, so the server
+        # is stored in the settings file alone.
+        effective_provider = stored.get("VPN_PROVIDER") or self._provider_fallback
         self._write_env_file(stored)
-        if server is not None:
+        if server is not None and effective_provider == CUSTOM_PROVIDER:
             self._rewrite_config_server(server.strip())
         return self.read_settings()
 
