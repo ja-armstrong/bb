@@ -2,12 +2,16 @@
 // for the stack. Run it on a fresh machine to prepare the machine (setup),
 // check it (doctor), or update an existing install (update).
 //
-// The subcommands are stubs for now; their behaviour lands in later tickets.
+// setup runs the prerequisite stage; doctor and update are stubs for now,
+// their behaviour lands in later tickets.
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
+
+	"github.com/ja-armstrong/bb/internal/prereqs"
 )
 
 // Injected at build time via -ldflags "-X main.version=... -X main.commit=...".
@@ -37,15 +41,6 @@ Commands:
 Use "bitbeard <command>" to see what a command will do.`
 
 // USER-FACING
-const usageSetup = `bitbeard setup
-
-Prepare this machine to run the Bitbeard stack: install prerequisites, fetch the
-repository, collect credentials, and bring the stack up. Rerunning it enables a
-skipped Optional Subsystem or revisits any credential.
-
-(Not implemented yet — this stub only reports what it will do.)`
-
-// USER-FACING
 const usageDoctor = `bitbeard doctor
 
 Check this machine and the running stack without changing anything: verifies
@@ -70,7 +65,22 @@ func main() {
 	switch os.Args[1] {
 	case "setup":
 		// USER-FACING
-		fmt.Fprintln(os.Stdout, usageSetup)
+		fmt.Fprintln(os.Stdout, "bitbeard setup — stage 1: prerequisites")
+		// Prerequisite stage of the Bootstrap; later stages land in their own tickets.
+		_, err := prereqs.Ensure(prereqs.NewRunner(), os.Stdout, "")
+		switch {
+		case err == nil:
+			// continue to the not-yet-implemented stages below
+		case errors.Is(err, prereqs.ErrUnsupportedDistro):
+			// Instructions were printed by the prerequisite stage.
+			os.Exit(1)
+		default:
+			// USER-FACING
+			fmt.Fprintf(os.Stderr, "bitbeard setup: %v\n", err)
+			os.Exit(1)
+		}
+		// USER-FACING
+		fmt.Fprintln(os.Stdout, "The remaining Bootstrap stages (fetch the repository, collect credentials, bring the stack up) are not implemented yet.")
 	case "doctor":
 		// USER-FACING
 		fmt.Fprintln(os.Stdout, usageDoctor)
