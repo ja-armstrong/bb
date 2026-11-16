@@ -8,9 +8,10 @@ convention:
 
 - the listing is filtered to containers carrying this compose project's
   ``com.docker.compose.project`` label;
-- only the fixed Subsystem names from ``docker-compose.yml`` are
-  controllable — anything else raises ``UnknownSubsystem`` before a single
-  docker call happens;
+- only the known Subsystem names are controllable — the mandatory ones
+  from ``docker-compose.yml`` plus the Media Server slot derived from
+  ``COMPOSE_PROFILES`` — anything else raises ``UnknownSubsystem`` before
+  a single docker call happens;
 - the caller (``api.main``) gates every action behind the Admin Role and
   writes an Audit Ledger row for it.
 
@@ -23,6 +24,7 @@ import-safety rule ``manager_proxy`` keeps for ``requests``.
 """
 
 import logging
+import os
 import socket
 from typing import Any, Callable
 
@@ -32,23 +34,67 @@ logger = logging.getLogger(__name__)
 #: on it keeps the socket's root-equivalent power scoped to this stack.
 COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
 
-#: The known Subsystems (the container names from ``docker-compose.yml``)
-#: and the port a reachability probe tries. Everything but plex shares
-#: gluetun's network namespace, so ``127.0.0.1`` is the right probe host from
-#: the API's side; plex is listed for parity with the panel. ``None`` means
-#: no port of its own to probe (gluetun only forwards others'; init-configs
-#: is one-shot and listens for nothing).
-SUBSYSTEM_PORTS: dict[str, int | None] = {
+#: The mandatory Subsystems (the container names from ``docker-compose.yml``)
+#: and the port a reachability probe tries. Everything but the Media Server
+#: shares gluetun's network namespace, so ``127.0.0.1`` is the right probe
+#: host from the API's side; the Media Server is listed for parity with the
+#: panel. ``None`` means no port of its own to probe (gluetun only forwards
+#: others'; init-configs is one-shot and listens for nothing).
+MANDATORY_SUBSYSTEM_PORTS: dict[str, int | None] = {
     "gluetun": None,
     "init-configs": None,
     "qbittorrent": 8080,
     "jackett": 9117,
-    "plex": 32400,
     "api": 9870,
     "manager": 9871,
     "bot": 9872,
     "webui": 80,
 }
+
+#: The Media Server's probe port, whichever flavor the environment enables.
+MEDIA_SERVER_PORTS: dict[str, int] = {
+    "jellyfin": 8096,
+    "plex": 32400,
+}
+
+
+def media_server() -> str | None:
+    """The Media Server ``COMPOSE_PROFILES`` enables, or ``None``.
+
+    The compose profiles are the source of truth for which Media Server
+    the stack boots, so the panel's one dynamic slot derives from the
+    same variable the ``api`` service is handed — the panel can never
+    disagree with what is actually running. Only one flavor belongs in a
+    stack (the Media Server is chosen once at Bootstrap); if both are
+    listed, jellyfin wins, the same order the guidance names them in.
+    """
+    profiles = {
+        name.strip()
+        for name in os.environ.get("COMPOSE_PROFILES", "").split(",")
+        if name.strip()
+    }
+    for candidate in MEDIA_SERVER_PORTS:
+        if candidate in profiles:
+            return candidate
+    return None
+
+
+def subsystem_ports() -> dict[str, int | None]:
+    """The known Subsystems and their probe ports, with the Media Server
+    slot filled from ``COMPOSE_PROFILES``.
+
+    The Media Server entry sits between the torrent Subsystems and the
+    API — where its ``docker-compose.yml`` service lives — and vanishes
+    entirely when no flavor is enabled. Read per call, so a ``docker
+    compose up`` with new profiles is all a change takes.
+    """
+    ports: dict[str, int | None] = {}
+    media = media_server()
+    for name, port in MANDATORY_SUBSYSTEM_PORTS.items():
+        if name == "api" and media is not None:
+            ports[media] = MEDIA_SERVER_PORTS[media]
+        ports[name] = port
+    return ports
 
 #: Subsystems that may be disabled from the Admin Panel. Every other
 #: Subsystem is mandatory and restartable only.
@@ -133,13 +179,13 @@ class DockerControl:
         containers = self._containers()
         return {
             name: containers[name].status if name in containers else "absent"
-            for name in SUBSYSTEM_PORTS
+            for name in subsystem_ports()
         }
 
     def probe(self, name: str) -> bool | None:
         """Reachability of a Subsystem's known port, or ``None`` for the
         Subsystems that listen on no port of their own."""
-        port = SUBSYSTEM_PORTS[name]
+        port = subsystem_ports()[name]
         if port is None:
             return None
         return self._prober(port)
@@ -154,7 +200,7 @@ class DockerControl:
         is how a disabled Bot, or a stack torn down on the host, behaves).
         Unknown names and actions are refused before any docker call.
         """
-        if name not in SUBSYSTEM_PORTS:
+        if name not in subsystem_ports():
             raise UnknownSubsystem(name)
         if action not in CONTAINER_ACTIONS:
             raise ValueError(f"Unknown container action: {action}")

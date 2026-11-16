@@ -45,7 +45,7 @@ from .docker_control import (
     DockerControl,
     DockerUnavailable,
     OPTIONAL_SUBSYSTEMS,
-    SUBSYSTEM_PORTS,
+    subsystem_ports,
 )
 from .manager_proxy import ManagerProxy, ManagerUnavailable, Transport
 from .sessions import SessionStore
@@ -409,12 +409,12 @@ def create_app(
                 status_code=502, detail="Docker is unavailable."
             )
 
-    def service_view(name: str, statuses: dict[str, str]) -> dict:
+    def service_view(name: str, statuses: dict[str, str], ports: dict) -> dict:
         """One Subsystem's row for the panel: state, probe, disable flag."""
         return {
             "name": name,
             "state": statuses.get(name, "absent"),
-            "port": SUBSYSTEM_PORTS[name],
+            "port": ports[name],
             "probe": control.probe(name),
             "optional": name in OPTIONAL_SUBSYSTEMS,
             "disabled": db.service_disabled(config.db_path, name),
@@ -1193,7 +1193,8 @@ def create_app(
         the Admin's decision, not a container state.
         """
         statuses = docker_or_502(control.statuses)
-        services = [service_view(name, statuses) for name in SUBSYSTEM_PORTS]
+        ports = subsystem_ports()
+        services = [service_view(name, statuses, ports) for name in ports]
         return {"services": services}
 
     @app.post("/admin/services/{name}/{action}")
@@ -1211,7 +1212,7 @@ def create_app(
         everything), enable clears it and starts the container again —
         both gracefully when the container is not there to act on.
         """
-        if name not in SUBSYSTEM_PORTS:
+        if name not in subsystem_ports():
             raise HTTPException(status_code=404, detail="No such Subsystem.")
 
         if action in CONTAINER_ACTIONS:

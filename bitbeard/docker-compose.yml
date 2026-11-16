@@ -139,6 +139,9 @@ services:
       - DATABASE_PATH=${DATABASE_PATH}
       - MANAGER_URL=${MANAGER_URL}
       - VPN_PROVIDER=${VPN_PROVIDER}
+      # Which Optional Subsystems the stack boots; the Admin Panel derives
+      # its Media Server entry from the same source of truth.
+      - COMPOSE_PROFILES=${COMPOSE_PROFILES}
       - OPENVPN_DIR=/openvpn
     volumes:
       - ./data:/data

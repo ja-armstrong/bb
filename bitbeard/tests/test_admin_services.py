@@ -17,7 +17,7 @@ from api.docker_control import (
     COMPOSE_PROJECT_LABEL,
     DockerControl,
     OPTIONAL_SUBSYSTEMS,
-    SUBSYSTEM_PORTS,
+    subsystem_ports,
 )
 from api.main import COOKIE_NAME, create_app
 from api.manager_proxy import ProxyResponse
@@ -154,7 +154,7 @@ def test_listing_reports_state_probe_and_disable_flag(tmp_path):
     services = {svc["name"]: svc for svc in response.json()["services"]}
 
     # Only this compose project's Subsystems, in the fixed table order.
-    assert list(services) == list(SUBSYSTEM_PORTS)
+    assert list(services) == list(subsystem_ports())
 
     qb = services["qbittorrent"]
     assert qb["state"] == "running"
@@ -185,11 +185,13 @@ def test_listing_covers_every_subsystem_with_defaults(tmp_path):
         }
 
     # Containers absent from the listing read "absent"; the one-shot
-    # init-configs and gluetun have no port to probe.
+    # init-configs and gluetun have no port to probe. With no Media
+    # Server profile enabled there is no media server entry at all.
     assert services["api"]["state"] == "absent"
     assert services["gluetun"]["probe"] is None
     assert services["init-configs"]["probe"] is None
-    assert services["plex"]["port"] == 32400
+    assert "plex" not in services
+    assert "jellyfin" not in services
 
 
 def test_listing_probes_every_known_port(tmp_path):
@@ -200,7 +202,7 @@ def test_listing_probes_every_known_port(tmp_path):
         _login(client)
         client.get("/admin/services")
 
-    expected = {port for port in SUBSYSTEM_PORTS.values() if port is not None}
+    expected = {port for port in subsystem_ports().values() if port is not None}
     assert set(prober.probed) == expected
 
 
@@ -221,6 +223,96 @@ def test_docker_unavailable_becomes_one_502(tmp_path):
     assert listing.status_code == 502
     assert action.status_code == 502
     assert "unavailable" in listing.json()["detail"].lower()
+
+
+# --- The Media Server slot (COMPOSE_PROFILES) ------------------------------------
+
+
+def test_plex_profile_lists_plex_on_its_probe_port(monkeypatch, tmp_path):
+    monkeypatch.setenv("COMPOSE_PROFILES", "plex")
+    config = make_config(tmp_path)
+    control, _, prober = make_control(open_ports=[32400])
+
+    with make_client(config, control) as client:
+        _login(client)
+        services = {
+            svc["name"]: svc for svc in client.get("/admin/services").json()["services"]
+        }
+
+    # One dynamic slot, not two static entries: plex takes it, jellyfin
+    # does not appear, and the probe runs against plex's real port.
+    assert "plex" in services
+    assert "jellyfin" not in services
+    assert services["plex"]["port"] == 32400
+    assert services["plex"]["probe"] is True
+    assert list(services) == list(subsystem_ports())
+
+
+def test_jellyfin_profile_lists_jellyfin_on_its_probe_port(monkeypatch, tmp_path):
+    monkeypatch.setenv("COMPOSE_PROFILES", "jellyfin")
+    config = make_config(tmp_path)
+    control, _, prober = make_control(open_ports=[8096])
+
+    with make_client(config, control) as client:
+        _login(client)
+        services = {
+            svc["name"]: svc for svc in client.get("/admin/services").json()["services"]
+        }
+
+    assert "jellyfin" in services
+    assert "plex" not in services
+    assert services["jellyfin"]["port"] == 8096
+    assert services["jellyfin"]["probe"] is True
+    assert list(services) == list(subsystem_ports())
+
+
+def test_no_media_profile_leaves_no_media_server_entry(monkeypatch, tmp_path):
+    monkeypatch.delenv("COMPOSE_PROFILES", raising=False)
+    config = make_config(tmp_path)
+    control, _, prober = make_control()
+
+    with make_client(config, control) as client:
+        _login(client)
+        services = {
+            svc["name"]: svc for svc in client.get("/admin/services").json()["services"]
+        }
+
+    assert "plex" not in services
+    assert "jellyfin" not in services
+    assert 32400 not in prober.probed
+    assert 8096 not in prober.probed
+
+
+def test_the_media_slot_table_directly(monkeypatch):
+    monkeypatch.setenv("COMPOSE_PROFILES", "bot, jellyfin")
+    ports = subsystem_ports()
+    assert ports["jellyfin"] == 8096
+    assert "plex" not in ports
+
+    monkeypatch.setenv("COMPOSE_PROFILES", "plex,bot")
+    ports = subsystem_ports()
+    assert ports["plex"] == 32400
+    assert "jellyfin" not in ports
+
+    monkeypatch.delenv("COMPOSE_PROFILES")
+    ports = subsystem_ports()
+    assert "plex" not in ports
+    assert "jellyfin" not in ports
+
+    # The slot sits where its docker-compose.yml service lives: between
+    # the torrent Subsystems and the API.
+    monkeypatch.setenv("COMPOSE_PROFILES", "plex")
+    assert list(subsystem_ports()) == [
+        "gluetun",
+        "init-configs",
+        "qbittorrent",
+        "jackett",
+        "plex",
+        "api",
+        "manager",
+        "bot",
+        "webui",
+    ]
 
 
 # --- Actions (POST /admin/services/{name}/{action}) -----------------------------
@@ -424,7 +516,7 @@ def test_disable_and_enable_are_refused_for_mandatory_subsystems(tmp_path):
 
     with make_client(config, control) as client:
         _login(client)
-        for name in ("webui", "gluetun", "plex", "api", "manager"):
+        for name in ("webui", "gluetun", "jackett", "api", "manager"):
             disable = client.post(f"/admin/services/{name}/disable")
             enable = client.post(f"/admin/services/{name}/enable")
             assert disable.status_code == 400, name
