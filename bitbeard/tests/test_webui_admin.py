@@ -83,6 +83,24 @@ def test_the_admin_panel_ships_the_vpn_page():
     assert '<button data-page="vpn" disabled' not in html
 
 
+def test_the_admin_panel_ships_the_registrations_page():
+    html = read("admin.html")
+
+    # The Registrations page of ticket #30: the pending queue with the
+    # stored fields, the approve/deny actions against the review
+    # endpoints, the confirm gate on the destructive deny, and the plain
+    # empty state.
+    assert 'id="page-registrations"' in html
+    assert 'id="registration-rows"' in html
+    assert "/admin/registrations" in html
+    assert "approve" in html
+    assert "deny" in html
+    assert "confirm(" in html
+    assert "No pending requests." in html
+    # The nav button is live, no longer a placeholder.
+    assert '<button data-page="registrations" disabled' not in html
+
+
 def test_nginx_serves_admin_html_at_admin():
     conf = read("default.conf")
 

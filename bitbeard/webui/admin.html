@@ -46,6 +46,8 @@
                 <!-- USER-FACING -->
                 <button data-page="users">Users</button>
                 <!-- USER-FACING -->
+                <button data-page="registrations">Registrations</button>
+                <!-- USER-FACING -->
                 <button data-page="subsystems">Subsystems</button>
                 <!-- USER-FACING -->
                 <button data-page="files">Files</button>
@@ -177,6 +179,29 @@
                     <tbody id="user-rows"></tbody>
                 </table>
                 <div id="users-message" aria-live="polite"></div>
+            </div>
+
+            <div class="section page" id="page-registrations" hidden>
+                <!-- USER-FACING -->
+                <h2>Registration Requests</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <!-- USER-FACING -->
+                            <th scope="col">Username</th>
+                            <!-- USER-FACING -->
+                            <th scope="col">Note</th>
+                            <!-- USER-FACING -->
+                            <th scope="col">Submitted</th>
+                            <!-- USER-FACING -->
+                            <th scope="col">Source IP</th>
+                            <!-- USER-FACING -->
+                            <th scope="col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="registration-rows"></tbody>
+                </table>
+                <div id="registrations-message" aria-live="polite"></div>
             </div>
 
             <div class="section page" id="page-subsystems" hidden>
@@ -767,6 +792,7 @@
             document.getElementById(`page-${name}`).hidden = false;
             if (name === 'audit') loadLedger();
             else if (name === 'users') loadUsers();
+            else if (name === 'registrations') loadRegistrations();
             else if (name === 'subsystems') loadServices();
             else if (name === 'files') loadFiles();
             else if (name === 'vpn') loadVpnStatus();
@@ -1031,6 +1057,77 @@
         // Show/hide the override GB field in the create form.
         document.getElementById('new-quota-mode').addEventListener('change', function() {
             document.getElementById('new-quota-wrap').hidden = this.value !== 'override';
+        });
+
+        // --- Registrations (ticket #30) --------------------------------
+        function renderRegistrationRow(req) {
+            return `
+                <tr>
+                    <td class="actor">${esc(req.username)}</td>
+                    <td class="details">${esc(req.note || "—")}</td>
+                    <td>${esc(req.created_at)}</td>
+                    <td>${esc(req.source_ip)}</td>
+                    <td>
+                        <button data-reg-action="approve" data-id="${req.id}" data-username="${esc(req.username)}">Approve</button>
+                        <button data-reg-action="deny" data-id="${req.id}" data-username="${esc(req.username)}">Deny</button>
+                    </td>
+                </tr>`;
+        }
+
+        async function loadRegistrations() {
+            const rows = document.getElementById('registration-rows');
+            try {
+                const resp = await fetch(`${API_BASE}/admin/registrations`);
+                if (handleAuthFailure(resp)) return;
+                const data = await resp.json();
+                if (!resp.ok) {
+                    // USER-FACING
+                    rows.innerHTML = `<tr><td colspan="5"><span class="error">${esc(data.detail || "Failed to load Registration Requests")}</span></td></tr>`;
+                    return;
+                }
+                // USER-FACING
+                if (!data.requests.length) {
+                    // USER-FACING
+                    rows.innerHTML = `<tr><td colspan="5" class="details">No pending requests.</td></tr>`;
+                    return;
+                }
+                rows.innerHTML = data.requests.map(renderRegistrationRow).join('');
+            } catch (err) {
+                // USER-FACING
+                rows.innerHTML = `<tr><td colspan="5"><span class="error">Error: ${esc(err)}</span></td></tr>`;
+            }
+        }
+
+        // Approve and deny: one delegated listener, one reload. Deny is
+        // destructive (the request is gone for good), so it confirms.
+        document.getElementById('registration-rows').addEventListener('click', async function(e) {
+            const btn = e.target.closest('button[data-reg-action]');
+            if (!btn) return;
+            const id = btn.dataset.id;
+            const action = btn.dataset.regAction;
+            const msgId = 'registrations-message';
+
+            // USER-FACING
+            if (action === 'deny' &&
+                !confirm(`Deny the request from ${btn.dataset.username}? This removes it for good.`)) {
+                return;
+            }
+
+            try {
+                const resp = await fetch(`${API_BASE}/admin/registrations/${id}/${action}`, { method: "POST" });
+                if (handleAuthFailure(resp)) return;
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok) {
+                    // USER-FACING
+                    flash(msgId, data.message || "Done.");
+                } else {
+                    // USER-FACING
+                    flash(msgId, data.detail || "The action was refused.", true);
+                }
+                loadRegistrations();
+            } catch (err) {
+                flash(msgId, `Error: ${err}`, true);
+            }
         });
 
         // Initial load: prove the Admin Session before revealing the panel.

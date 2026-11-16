@@ -357,6 +357,78 @@ def pending_registration_request(path: str, username: str) -> sqlite3.Row | None
         ).fetchone()
 
 
+def list_registration_requests(path: str) -> list[sqlite3.Row]:
+    """Every pending Registration Request, oldest first, for the Admin
+    Panel's review queue."""
+    with closing(connect(path)) as connection:
+        return connection.execute(
+            "SELECT * FROM registration_requests ORDER BY id"
+        ).fetchall()
+
+
+def get_registration_request(
+    path: str, request_id: int
+) -> sqlite3.Row | None:
+    """Look up one pending Registration Request by id, for the review
+    actions."""
+    with closing(connect(path)) as connection:
+        return connection.execute(
+            "SELECT * FROM registration_requests WHERE id = ?", (request_id,)
+        ).fetchone()
+
+
+def create_account_from_hash(
+    path: str,
+    *,
+    username: str,
+    password_hash: str,
+    role: str,
+    quota_bytes: int | None = None,
+) -> int | None:
+    """Create an Account from an already-hashed password; returns its id.
+
+    Mirrors ``create_account`` — the UNIQUE constraint is the guard of
+    record, so a race between the caller's pre-check and the insert
+    cannot double-create — but takes the stored hash instead of
+    plaintext. This is how an approved Registration Request becomes an
+    Account: the hash the visitor's password produced at submission is
+    carried over untouched, so the credentials they chose log in
+    verbatim with no reset ceremony.
+    """
+    with closing(connect(path)) as connection:
+        try:
+            cursor = connection.execute(
+                """
+                INSERT INTO users (username, password_hash, role,
+                                   quota_bytes, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (username, password_hash, role, quota_bytes, utc_now()),
+            )
+            connection.commit()
+        except sqlite3.IntegrityError:
+            return None
+    return cursor.lastrowid
+
+
+def delete_registration_request(
+    path: str, request_id: int
+) -> sqlite3.Row | None:
+    """Drop a pending Registration Request; returns the row so the caller
+    can audit what it refused."""
+    with closing(connect(path)) as connection:
+        row = connection.execute(
+            "SELECT * FROM registration_requests WHERE id = ?", (request_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        connection.execute(
+            "DELETE FROM registration_requests WHERE id = ?", (request_id,)
+        )
+        connection.commit()
+    return row
+
+
 # --- Link Codes (Discord linking, ADR-0002) --------------------------------
 #
 # A one-time Link Code, generated in the Webui, binds an Account to a
