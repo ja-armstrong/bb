@@ -17,6 +17,7 @@ import (
 
 	"github.com/ja-armstrong/bb/internal/fetch"
 	"github.com/ja-armstrong/bb/internal/prereqs"
+	"github.com/ja-armstrong/bb/internal/proxy"
 	"github.com/ja-armstrong/bb/internal/wizard"
 )
 
@@ -303,8 +304,51 @@ func Run(o Options) Result {
 		// USER-FACING
 		"check `docker compose logs api` in "+composeDir+"; note the API is only reachable from the host through the Webui proxy"))
 
+	// Public reverse proxy: only when the wizard's Caddy integration is
+	// switched on (CADDY_ENABLED=1 in .env) does the doctor look at the
+	// host service — a read-only `systemctl is-active`, no control, and
+	// nothing about Caddy at all when the integration is off. Caddy is
+	// host infrastructure, not a Subsystem: the API keeps only its docker
+	// socket (ADR-0003).
+	if proxy.Enabled(env) {
+		say(caddyCheck(o.Runner))
+	}
+
 	printSummary(out, res)
 	return res
+}
+
+// caddyCheck probes the host caddy service through the Runner. It is a
+// probe only: read-only, no restart, no reload.
+func caddyCheck(r prereqs.Runner) Check {
+	active, err := proxy.ServiceActive(r)
+	switch {
+	case err != nil:
+		return Check{
+			Name: "Caddy (reverse proxy)",
+			Pass: false,
+			// USER-FACING
+			Detail: fmt.Sprintf("could not ask systemd about the caddy service: %v", err),
+			// USER-FACING
+			Fix: "check the service on the host (`systemctl status caddy`); if the integration was never set up, rerun `bitbeard setup` and answer the reverse-proxy question",
+		}
+	case active:
+		return Check{
+			Name: "Caddy (reverse proxy)",
+			Pass: true,
+			// USER-FACING
+			Detail: "running (systemctl is-active)",
+		}
+	default:
+		return Check{
+			Name: "Caddy (reverse proxy)",
+			Pass: false,
+			// USER-FACING
+			Detail: "is not running (expected running)",
+			// USER-FACING
+			Fix: "start it with `sudo systemctl enable --now caddy`; `journalctl -u caddy` shows why it stopped",
+		}
+	}
 }
 
 // passFailDetail picks the detail for a boolean check.

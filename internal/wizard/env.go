@@ -43,6 +43,8 @@ var envSections = []envSection{
 	{"Internal hops (all Subsystems share gluetun's netns, so localhost is right)", []string{"MANAGER_URL", "BOT_URL"}},
 	// USER-FACING
 	{"Optional Subsystems", []string{"COMPOSE_PROFILES"}},
+	// USER-FACING
+	{"Public access (reverse proxy)", []string{"CADDY_ENABLED", "CADDY_DOMAIN", "PUBLIC_HTTPS"}},
 }
 
 // envKeys is the flat, ordered key list of the generated .env.
@@ -78,6 +80,12 @@ var keyComments = map[string]string{
 	// USER-FACING
 	"COMPOSE_PROFILES": "# Which Optional Subsystems to boot, space-separated (bot, plex, jellyfin).\n# Managed by `bitbeard setup` and the Admin Panel; empty boots only the\n# mandatory Subsystems.",
 	// USER-FACING
+	"CADDY_ENABLED": "# 1 when `bitbeard setup` set up the Caddy reverse proxy on this host;\n# the doctor's service check and later reruns read it. Empty for a\n# LAN-only stack.",
+	// USER-FACING
+	"CADDY_DOMAIN": "# The base domain behind Caddy (bitbeard.<domain> and jellyfin.<domain>\n# derive from it); empty on a LAN-only stack. Display only — the serving\n# configuration lives in /etc/caddy/caddy.d/bitbeard.caddy, which is yours.",
+	// USER-FACING
+	"PUBLIC_HTTPS": "# 1 (the default) when the stack is served over HTTPS behind the reverse\n# proxy; set 0 only for a plain-HTTP LAN deployment (see docs/proxy.md).",
+	// USER-FACING
 	"PLEX_CLAIM": "# Optional claim token for the Plex Subsystem. `bitbeard setup` never asks\n# for one — claim tokens expire within minutes — claim the server at\n# http://localhost:32400/web after boot instead.",
 	// USER-FACING
 	"JELLYFIN_URL": "# Where the api container reaches the Jellyfin server; the default is\n# right for the bundled setup (the host-published 8096, via host-gateway).",
@@ -101,6 +109,9 @@ var fallbackEnv = Env{
 	"PLEX_CLAIM":                  "",
 	"JELLYFIN_URL":                defaultJellyfinURL,
 	"JELLYFIN_API_TOKEN":          "",
+	"CADDY_ENABLED":               "",
+	"CADDY_DOMAIN":                "",
+	"PUBLIC_HTTPS":                "1",
 }
 
 // renderEnv renders e as the full .env contents: every key of envKeys in

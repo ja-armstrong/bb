@@ -347,7 +347,7 @@ var ok200 = &fakeDiscord{resp: okDiscord}
 func TestRunFreshJellyfinAndBot(t *testing.T) {
 	stackDir := makeStackDir(t)
 	comp := &fakeCompose{psOut: healthyPSWith("bot", "jellyfin")}
-	input := airvpnMandatory() + "jellyfin\n\ntok-good\n123456789012345678\n"
+	input := airvpnMandatory() + "jellyfin\n\ntok-good\n123456789012345678\n\n"
 	out, res, err := runWizard(t, stackDir, input, comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
@@ -380,7 +380,7 @@ func TestRunFreshJellyfinAndBot(t *testing.T) {
 func TestRunFreshPlexNeverCollectsClaim(t *testing.T) {
 	stackDir := makeStackDir(t)
 	comp := &fakeCompose{psOut: healthyPSWith("plex")}
-	input := airvpnMandatory() + "plex\n\n"
+	input := airvpnMandatory() + "plex\n\n\n"
 	out, _, err := runWizard(t, stackDir, input, comp, nil)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
@@ -405,8 +405,8 @@ func TestRunRerunSwitchMediaServer(t *testing.T) {
 	comp := &fakeCompose{psOut: healthyPSWith("jellyfin")}
 	// Change VPN provider? no. Change Media Server? yes -> choice 1
 	// (jellyfin). The provisioning offer is declined. Bot disabled ->
-	// stay disabled.
-	out, res, err := runWizard(t, stackDir, "\ny\n1\n\n\n", comp, nil)
+	// stay disabled. Reverse proxy: no.
+	out, res, err := runWizard(t, stackDir, "\ny\n1\n\n\n\n", comp, nil)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -436,7 +436,7 @@ func TestRunRerunSkipKeepsExisting(t *testing.T) {
 	comp := &fakeCompose{psOut: healthyPSWith("plex")}
 	// No to the VPN provider switch, the Media Server switch and enabling
 	// the Bot.
-	out, res, err := runWizard(t, stackDir, "\n\n\n", comp, nil)
+	out, res, err := runWizard(t, stackDir, "\n\n\n\n", comp, nil)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -461,7 +461,7 @@ func TestRunRerunSkipKeepsExisting(t *testing.T) {
 		"DISCORD_ANNOUNCE_CHANNEL_ID": "123",
 	})
 	comp = &fakeCompose{psOut: healthyPSWith("bot", "plex")}
-	out, res, err = runWizard(t, stackDir, "\n\n\n", comp, ok200)
+	out, res, err = runWizard(t, stackDir, "\n\n\n\n", comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -485,8 +485,9 @@ func TestRunRerunPromptsOnlyMissing(t *testing.T) {
 	writeValidEnv(t, stackDir, "", nil)
 	comp := &fakeCompose{psOut: healthyPSWith("bot")}
 	// Keep Media Server (no), enable the Bot (yes), token, channel. The
-	// leading answer declines the VPN provider switch.
-	out, res, err := runWizard(t, stackDir, "\n\ny\ntok-rerun\n123456789012345678\n", comp, ok200)
+	// leading answer declines the VPN provider switch; the trailing one
+	// declines the reverse-proxy offer.
+	out, res, err := runWizard(t, stackDir, "\n\ny\ntok-rerun\n123456789012345678\n\n", comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -518,8 +519,9 @@ func TestRunRerunMissingBotTokenOnly(t *testing.T) {
 	stackDir := makeStackDir(t)
 	writeValidEnv(t, stackDir, "bot", Env{"DISCORD_ANNOUNCE_CHANNEL_ID": "123456789012345678"})
 	comp := &fakeCompose{psOut: healthyPSWith("bot")}
-	// No VPN switch, no media switch, then the token.
-	out, res, err := runWizard(t, stackDir, "\n\ntok-late\n", comp, ok200)
+	// No VPN switch, no media switch, then the token; the trailing answer
+	// declines the reverse-proxy offer.
+	out, res, err := runWizard(t, stackDir, "\n\ntok-late\n\n", comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -549,7 +551,7 @@ func TestRunRerunBotEnabledWithoutTokenTurnsOff(t *testing.T) {
 	writeValidEnv(t, stackDir, "bot", nil)
 	comp := newFakeCompose()
 	// No VPN switch, no media switch, no token.
-	_, _, err := runWizard(t, stackDir, "\n\n\n", comp, ok200)
+	_, _, err := runWizard(t, stackDir, "\n\n\n\n", comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -566,8 +568,9 @@ func TestRunRerunBotEnabledWithoutTokenTurnsOff(t *testing.T) {
 func TestRunFreshBotWithoutChannel(t *testing.T) {
 	stackDir := makeStackDir(t)
 	comp := &fakeCompose{psOut: healthyPSWith("bot")}
-	// Media Server skipped, token given, channel left empty.
-	input := airvpnMandatory() + "\ntok-good\n\n"
+	// Media Server skipped, token given, channel left empty, reverse
+	// proxy skipped.
+	input := airvpnMandatory() + "\ntok-good\n\n\n"
 	out, res, err := runWizard(t, stackDir, input, comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
@@ -601,7 +604,7 @@ func TestRunRerunBotWithoutChannelIsNormal(t *testing.T) {
 	before := writeValidEnv(t, stackDir, "bot", Env{"DISCORD_BOT_TOKEN": "tok"})
 	comp := &fakeCompose{psOut: healthyPSWith("bot")}
 	// No VPN switch, no Media Server switch, no to the channel offer.
-	out, res, err := runWizard(t, stackDir, "\n\n\n", comp, ok200)
+	out, res, err := runWizard(t, stackDir, "\n\n\n\n", comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -628,8 +631,9 @@ func TestRunRerunBotChannelAddedLater(t *testing.T) {
 	writeValidEnv(t, stackDir, "bot", Env{"DISCORD_BOT_TOKEN": "tok"})
 	comp := &fakeCompose{psOut: healthyPSWith("bot")}
 	// No VPN switch, no Media Server switch, yes to the channel offer,
-	// then the channel.
-	out, res, err := runWizard(t, stackDir, "\n\ny\n999888777666555444\n", comp, ok200)
+	// then the channel; the trailing answer declines the reverse-proxy
+	// offer.
+	out, res, err := runWizard(t, stackDir, "\n\ny\n999888777666555444\n\n", comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -659,8 +663,9 @@ func TestRunRerunEnableBotWithoutChannel(t *testing.T) {
 	writeValidEnv(t, stackDir, "", nil)
 	comp := &fakeCompose{psOut: healthyPSWith("bot")}
 	// No VPN switch, no Media Server switch, enable the Bot (yes), token,
-	// channel left empty.
-	out, res, err := runWizard(t, stackDir, "\n\ny\ntok-late\n\n", comp, ok200)
+	// channel left empty; the trailing answer declines the reverse-proxy
+	// offer.
+	out, res, err := runWizard(t, stackDir, "\n\ny\ntok-late\n\n\n", comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -690,8 +695,8 @@ func TestRunRerunVerifiesOptionalDown(t *testing.T) {
 	writeValidEnv(t, stackDir, "jellyfin", nil)
 	comp := newFakeCompose() // ps reports only the mandatory containers
 	// No VPN switch, no media switch, no to the provisioning offer, no
-	// to enabling the Bot.
-	_, res, err := runWizard(t, stackDir, "\n\n\n\n", comp, nil)
+	// to enabling the Bot, no to the reverse proxy.
+	_, res, err := runWizard(t, stackDir, "\n\n\n\n\n", comp, nil)
 	if err == nil {
 		t.Fatal("Run succeeded although jellyfin is not running")
 	}
@@ -713,7 +718,7 @@ func TestRunFreshBotTokenOfflineDeliberateContinue(t *testing.T) {
 	stackDir := makeStackDir(t)
 	comp := &fakeCompose{psOut: healthyPSWith("bot")}
 	offline := &fakeDiscord{resp: func(string) (int, error) { return 0, errors.New("dial tcp: offline") }}
-	input := airvpnMandatory() + "\ntok-offline\ny\n123456789012345678\n"
+	input := airvpnMandatory() + "\ntok-offline\ny\n123456789012345678\n\n"
 	out, _, err := runWizard(t, stackDir, input, comp, offline)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
