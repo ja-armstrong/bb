@@ -88,9 +88,9 @@ def test_the_confirmation_does_not_promise_timing_or_email():
     # The confirmation is the API's message, shown via the flash area.
     assert "data.message" in html
     assert 'class="success"' in html
-    # The page's own prose is honest too: an admin approves, no promises.
-    assert "an admin approves new accounts" in html.lower()
-    assert "no promises of timing" in html.lower()
+    # The page's own prose is honest too: reviewed manually, reach out for approval.
+    assert "reviewed manually" in html.lower()
+    assert "reach out via discord or email" in html.lower()
 
 
 def test_failures_render_inline_in_the_flash_area():
@@ -101,14 +101,17 @@ def test_failures_render_inline_in_the_flash_area():
     assert "data.detail" in html
 
 
-# --- No Discord anywhere in this flow -------------------------------------------
+# --- No Discord in the form itself ----------------------------------------------
+# The prose may mention discord as an out-of-band contact; the FORM must not
+# collect anything Discord-related, and the account flow needs no linking.
 
 
 def test_discord_has_no_part_in_the_registration_flow():
     html = read("register.html")
 
-    assert "Discord" not in html
-    assert "discord" not in html.lower()
+    assert 'id="register-discord"' not in html
+    assert "link code" not in html.lower()
+    assert "link_code" not in html
 
 
 # --- Shared styling and a11y ------------------------------------------------------
