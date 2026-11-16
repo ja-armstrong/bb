@@ -108,6 +108,17 @@ h2 {
   border-radius: var(--radius);
 }
 
+/* Prose inside the card: the register page's explainer under the
+   heading, and the "Request an account" link under the login form.
+   Slightly narrower than the card's own 22rem text measure would be,
+   dimmed, with the links keeping their accent colour. */
+.login-card p {
+  margin: 0 0 1.25rem;
+  color: var(--text-dim);
+  font-size: .9rem;
+}
+.login-card form + p { margin: -0.5rem 0 0; }
+
 /* --- Forms ------------------------------------------------------------ */
 
 /* Stacked fields: each control sits just under its label; the next
