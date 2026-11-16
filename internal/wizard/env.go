@@ -72,7 +72,9 @@ var keyComments = map[string]string{
 	// USER-FACING
 	"DATABASE_PATH": "# Single SQLite database on the shared data volume.",
 	// USER-FACING
-	"COMPOSE_PROFILES": "# Which Optional Subsystems to boot, space-separated (bot, plex, jellyfin).\n# Empty: only the mandatory Subsystems run. Enabling them is not part of the\n# wizard yet; see the Admin Panel and the stack README.",
+	"COMPOSE_PROFILES": "# Which Optional Subsystems to boot, space-separated (bot, plex, jellyfin).\n# Managed by `bitbeard setup` and the Admin Panel; empty boots only the\n# mandatory Subsystems.",
+	// USER-FACING
+	"PLEX_CLAIM": "# Optional claim token for the Plex Subsystem. `bitbeard setup` never asks\n# for one — claim tokens expire within minutes — claim the server at\n# http://localhost:32400/web after boot instead.",
 }
 
 // fallbackEnv is used for keys the wizard does not prompt for when the
@@ -92,9 +94,9 @@ var fallbackEnv = Env{
 }
 
 // renderEnv renders e as the full .env contents: every key of envKeys in
-// order, seeded defaults for the keys the wizard did not collect, and an
-// empty COMPOSE_PROFILES (the mandatory-only stack; Optional Subsystems are
-// a later concern).
+// order, seeded defaults for the keys the wizard did not collect, and
+// COMPOSE_PROFILES from the Optional Subsystems stage (empty means the
+// mandatory-only stack).
 func renderEnv(e Env) string {
 	var b strings.Builder
 	// USER-FACING

@@ -84,7 +84,8 @@ func main() {
 			os.Exit(1)
 		}
 		// Configuration and boot stage of the Bootstrap: prompt for every
-		// required key, write .env, and bring the mandatory-only stack up.
+		// required key and the Optional Subsystems (Media Server choice,
+		// Bot keys), write .env, and bring the stack up.
 		if _, err := wizard.Run(wizard.Options{
 			StackDir: fetchRes.StackPath,
 			In:       os.Stdin,

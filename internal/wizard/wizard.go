@@ -1,9 +1,12 @@
 // Package wizard implements the configuration and boot stage of Bitbeard
 // Bootstrap. It prompts for every required key one at a time (with an
-// explanation and live validation per key), writes the stack's .env with an
-// empty COMPOSE_PROFILES, keeps or replaces the OpenVPN configuration file,
-// boots the mandatory-only stack, and verifies the mandatory Subsystems are
-// running. On rerun, a valid .env skips straight to boot.
+// explanation and live validation per key), asks for the Optional
+// Subsystems — the Media Server choice and the Bot's Discord keys, which
+// land in COMPOSE_PROFILES — writes the stack's .env, keeps or replaces
+// the OpenVPN configuration file, boots the stack, and verifies the
+// mandatory Subsystems plus any enabled Optional Subsystems are running.
+// On rerun, a valid .env is kept wholesale and only the missing optional
+// choices and keys are asked; the Media Server can also be switched.
 package wizard
 
 import (
@@ -27,6 +30,8 @@ type Options struct {
 	Compose Compose
 	// Rand is the randomness for generated secrets; nil means crypto/rand.
 	Rand io.Reader
+	// Discord live-checks bot tokens; nil means the real Discord API.
+	Discord DiscordChecker
 }
 
 // Result reports what the configuration and boot stage did.
@@ -46,12 +51,28 @@ type Result struct {
 type collected struct {
 	env     Env
 	ovpnSrc string // path to a user .ovpn file, "" when keeping the bundled one
+	// media is the chosen Media Server profile: profileJellyfin,
+	// profilePlex, or "" (none). It lands in COMPOSE_PROFILES, never in a
+	// per-server key.
+	media string
+	// bot is true when the Bot keys were provided.
+	bot bool
+}
+
+// discord returns the configured DiscordChecker, defaulting to the real
+// Discord API.
+func (o Options) discord() DiscordChecker {
+	if o.Discord != nil {
+		return o.Discord
+	}
+	return DiscordAPI{}
 }
 
 // Run executes the configuration and boot stage against the cloned stack at
-// o.StackDir. An existing valid .env is detected and boot proceeds without
-// prompting; a broken one is diagnosed and the operator offered a rerun of
-// the wizard.
+// o.StackDir. An existing valid .env is kept and only the Optional
+// Subsystems stage runs (missing choices and keys, plus the offer to switch
+// the Media Server) before boot; a broken one is diagnosed and the operator
+// offered a full rerun of the wizard.
 func Run(o Options) (Result, error) {
 	if o.Out == nil {
 		o.Out = os.Stdout
@@ -71,7 +92,9 @@ func Run(o Options) (Result, error) {
 
 	pr := newPrompter(o.In, out)
 
-	// Rerun behaviour: a valid .env goes straight to boot.
+	// Rerun behaviour: a valid .env is kept wholesale; only the Optional
+	// Subsystems stage runs (missing choices and keys, plus the offer to
+	// switch the Media Server), then boot re-applies the profiles.
 	if data, rerr := os.ReadFile(res.EnvPath); rerr == nil {
 		e, perr := ParseEnv(string(data))
 		switch {
@@ -80,8 +103,51 @@ func Run(o Options) (Result, error) {
 			fmt.Fprintf(out, "The existing .env at %s could not be parsed: %v\n", res.EnvPath, perr)
 		case len(e.Problems()) == 0:
 			// USER-FACING
-			fmt.Fprintf(out, "Found a valid .env at %s — skipping the prompts.\n", res.EnvPath)
-			if err := boot(o, composeDir, out, &res); err != nil {
+			fmt.Fprintf(out, "Found a valid .env at %s — skipping the mandatory prompts.\n", res.EnvPath)
+
+			stage, err := collectOptionalRerun(pr, out, e, o.discord())
+			if err != nil {
+				return res, err
+			}
+			if stage.changed {
+				// Overlay the newly collected keys on the kept values;
+				// the prompted stage always wins, the rest is preserved.
+				ne := mergeEnv(e, stage.env)
+				ne["COMPOSE_PROFILES"] = stage.profiles
+				// USER-FACING
+				fmt.Fprintf(out, "Updating %s:\n", res.EnvPath)
+				for _, k := range []string{"DISCORD_BOT_TOKEN", "DISCORD_ANNOUNCE_CHANNEL_ID"} {
+					if v, ok := stage.env[k]; ok {
+						// USER-FACING
+						fmt.Fprintf(out, "  %s=%s\n", k, v)
+					}
+				}
+				// USER-FACING
+				fmt.Fprintf(out, "  COMPOSE_PROFILES=%s\n", stage.profiles)
+				if err := writeEnvFile(res.EnvPath, ne); err != nil {
+					// USER-FACING
+					return res, fmt.Errorf("writing %s: %w", res.EnvPath, err)
+				}
+				res.WroteEnv = true
+
+				// Defend against a bug in our own generation: what we
+				// just wrote must parse and validate.
+				if data, err := os.ReadFile(res.EnvPath); err != nil {
+					// USER-FACING
+					return res, fmt.Errorf("re-reading %s: %w", res.EnvPath, err)
+				} else if w, perr := ParseEnv(string(data)); perr != nil {
+					// USER-FACING
+					return res, fmt.Errorf("the freshly written .env does not parse: %v", perr)
+				} else if probs := w.Problems(); len(probs) > 0 {
+					// USER-FACING
+					return res, fmt.Errorf("the freshly written .env failed validation: %s", strings.Join(probs, "; "))
+				}
+			} else {
+				// USER-FACING
+				fmt.Fprintln(out, "The Optional Subsystems are already as requested — nothing was changed.")
+			}
+
+			if err := boot(o, composeDir, out, &res, stage.profiles); err != nil {
 				return res, err
 			}
 			return res, nil
@@ -111,10 +177,12 @@ func Run(o Options) (Result, error) {
 		return res, err
 	}
 
-	// Build the full .env: seeded defaults for unprompted keys, the
-	// prompted values on top, and an empty COMPOSE_PROFILES.
+	// Build the full .env: seeded defaults for unprompted keys and the
+	// prompted values on top, with COMPOSE_PROFILES from the Optional
+	// Subsystems stage.
+	profiles := deriveProfiles("", c.media, c.bot)
 	e := mergeEnv(exampleSeed(composeDir), c.env)
-	e["COMPOSE_PROFILES"] = ""
+	e["COMPOSE_PROFILES"] = profiles
 
 	// USER-FACING
 	fmt.Fprintf(out, "Writing %s with:\n", res.EnvPath)
@@ -124,6 +192,9 @@ func Run(o Options) (Result, error) {
 			fmt.Fprintf(out, "  %s=%s\n", k, v)
 		}
 	}
+	// USER-FACING
+	fmt.Fprintf(out, "  COMPOSE_PROFILES=%s\n", profiles)
+
 	if err := writeEnvFile(res.EnvPath, e); err != nil {
 		// USER-FACING
 		return res, fmt.Errorf("writing %s: %w", res.EnvPath, err)
@@ -155,7 +226,7 @@ func Run(o Options) (Result, error) {
 		return res, err
 	}
 
-	if err := boot(o, composeDir, out, &res); err != nil {
+	if err := boot(o, composeDir, out, &res, profiles); err != nil {
 		return res, err
 	}
 	return res, nil
@@ -256,6 +327,17 @@ func collect(o Options, out io.Writer, pr *prompter) (collected, error) {
 		return c, err
 	}
 	c.env["BASE_DOWNLOAD_DIR"] = baseDir
+
+	// Optional Subsystems: the Media Server choice and the Bot keys.
+	stage, err := collectOptionalFresh(pr, o.discord())
+	if err != nil {
+		return c, err
+	}
+	c.media = stage.media
+	c.bot = stage.bot
+	for k, v := range stage.env {
+		c.env[k] = v
+	}
 
 	return c, nil
 }
@@ -367,15 +449,16 @@ func FindComposeDir(stackDir string) (string, error) {
 	return "", fmt.Errorf("no docker-compose.yml under %s — the stack repository looks incomplete; delete it and rerun `bitbeard setup`", stackDir)
 }
 
-// boot brings the mandatory stack up and verifies the mandatory Subsystems
-// are running.
-func boot(o Options, composeDir string, out io.Writer, res *Result) error {
+// boot brings the stack up and verifies the mandatory Subsystems and any
+// enabled Optional Subsystems are running. profiles is the COMPOSE_PROFILES
+// value in effect.
+func boot(o Options, composeDir string, out io.Writer, res *Result, profiles string) error {
 	comp := o.Compose
 	if comp == nil {
 		comp = DockerCompose{}
 	}
 	// USER-FACING
-	fmt.Fprintf(out, "Booting the mandatory stack: docker compose up -d in %s.\n", composeDir)
+	fmt.Fprintf(out, "Booting the stack: docker compose up -d in %s.\n", composeDir)
 	// USER-FACING
 	fmt.Fprintln(out, "First boot builds the api, manager and webui images and pulls the rest — this can take several minutes.")
 	if err := comp.Up(composeDir); err != nil {
@@ -405,6 +488,15 @@ func boot(o Options, composeDir string, out io.Writer, res *Result) error {
 
 	// USER-FACING
 	fmt.Fprintln(out, "The mandatory stack is up.")
+
+	// Optional Subsystems: only the enabled ones are expected, and each is
+	// verified here.
+	if missing := verifyOptionalRunning(cs, profiles); len(missing) > 0 {
+		// USER-FACING
+		return fmt.Errorf("the enabled Optional Subsystems did not come up: not running: %s. Check `docker compose logs <name>` in %s — for the Bot, DISCORD_BOT_TOKEN is the usual cause; a Media Server may still be pulling its image on first boot, in which case rerunning `bitbeard setup` re-checks.",
+			strings.Join(missing, ", "), composeDir)
+	}
+
 	// USER-FACING
 	fmt.Fprintln(out, "  Webui and Admin Panel: http://localhost:8081 — log in as the ADMIN_USER value with the ADMIN_PASSWORD from .env")
 	// USER-FACING
@@ -413,6 +505,23 @@ func boot(o Options, composeDir string, out io.Writer, res *Result) error {
 	fmt.Fprintln(out, "  qBittorrent WebUI: http://localhost:8080")
 	// USER-FACING
 	fmt.Fprintf(out, "  Stack directory: %s\n", composeDir)
+	if hasProfile(profiles, profileJellyfin) {
+		// USER-FACING
+		fmt.Fprintln(out, "  Jellyfin (Media Server): http://localhost:8096 — open it once to create your admin account (first-run setup)")
+	}
+	if hasProfile(profiles, profilePlex) {
+		// SETTLED DESIGN DECISION (ticket #18): the wizard never collects a
+		// PLEX_CLAIM value. Claim tokens expire within minutes, so asking
+		// for one here is a race the operator always loses. The plex
+		// Subsystem boots unclaimed and is claimed by hand at the URL
+		// below; do not "optimize" this into a PLEX_CLAIM prompt.
+		// USER-FACING
+		fmt.Fprintln(out, "  Plex (Media Server): http://localhost:32400/web — sign in and claim this server there (no claim token was asked for, on purpose)")
+	}
+	if hasProfile(profiles, profileBot) {
+		// USER-FACING
+		fmt.Fprintln(out, "  Bot: running; it announces finished Downloads in DISCORD_ANNOUNCE_CHANNEL_ID (invite it to your server if it has not joined yet)")
+	}
 	// USER-FACING
 	fmt.Fprintln(out, "Note: VPN credentials cannot be truly checked before boot. If gluetun keeps restarting, re-check OPENVPN_USER and OPENVPN_PASSWORD with `docker compose logs gluetun` in the stack directory.")
 	return nil
