@@ -2,8 +2,9 @@
 // for the stack. Run it on a fresh machine to prepare the machine (setup),
 // check it (doctor), or update an existing install (update).
 //
-// setup runs the prerequisite stage; doctor and update are stubs for now,
-// their behaviour lands in later tickets.
+// setup runs the prerequisite stage and then the fetch stage (clone/reuse of
+// the stack repository); doctor and update are stubs for now, their behaviour
+// lands in later tickets.
 package main
 
 import (
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ja-armstrong/bb/internal/fetch"
 	"github.com/ja-armstrong/bb/internal/prereqs"
 )
 
@@ -70,7 +72,7 @@ func main() {
 		_, err := prereqs.Ensure(prereqs.NewRunner(), os.Stdout, "")
 		switch {
 		case err == nil:
-			// continue to the not-yet-implemented stages below
+			// continue to the fetch stage below
 		case errors.Is(err, prereqs.ErrUnsupportedDistro):
 			// Instructions were printed by the prerequisite stage.
 			os.Exit(1)
@@ -79,8 +81,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "bitbeard setup: %v\n", err)
 			os.Exit(1)
 		}
-		// USER-FACING
-		fmt.Fprintln(os.Stdout, "The remaining Bootstrap stages (fetch the repository, collect credentials, bring the stack up) are not implemented yet.")
+		// Fetch stage of the Bootstrap: clone or reuse the stack repository.
+		if err := fetch.Setup(os.Stdout); err != nil {
+			// USER-FACING
+			fmt.Fprintf(os.Stderr, "bitbeard: %v\n", err)
+			os.Exit(1)
+		}
 	case "doctor":
 		// USER-FACING
 		fmt.Fprintln(os.Stdout, usageDoctor)

@@ -1,3 +1,4 @@
 # Local build artifacts
 /bitbeard
 /bitbeard-linux-*
+/bitbeard.exe
