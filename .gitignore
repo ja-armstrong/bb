@@ -2,3 +2,7 @@
 /bitbeard
 /bitbeard-linux-*
 /bitbeard.exe
+
+# Agent/maintainer workflow files — not part of the shipped project
+AGENTS.md
+/.scratch/
