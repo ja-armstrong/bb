@@ -68,8 +68,10 @@ func makeStackDir(t *testing.T) string {
 // fallbackEnvExample mirrors the real .env.example's parseable values.
 const fallbackEnvExample = "JACKETT_API_KEY=examplejackettkey\nQBITTORRENT_USERNAME=admin\nQBITTORRENT_PASSWORD=adminadmin\nADMIN_USER=admin\nDATABASE_PATH=/data/bitbeard.db\nAPI_URL=http://127.0.0.1:9870\nMANAGER_URL=http://127.0.0.1:9871\nBOT_URL=http://127.0.0.1:9872\n"
 
-// runWizard runs Run against a stack dir with scripted input.
-func runWizard(t *testing.T, stackDir, input string, comp *fakeCompose) (string, Result, error) {
+// runWizard runs Run against a stack dir with scripted input. discord is
+// the DiscordChecker (nil means the real API — pass a fake whenever a bot
+// token is entered).
+func runWizard(t *testing.T, stackDir, input string, comp *fakeCompose, discord DiscordChecker) (string, Result, error) {
 	t.Helper()
 	var out bytes.Buffer
 	res, err := Run(Options{
@@ -78,6 +80,7 @@ func runWizard(t *testing.T, stackDir, input string, comp *fakeCompose) (string,
 		Out:      &out,
 		Compose:  comp,
 		Rand:     newRand(),
+		Discord:  discord,
 	})
 	return out.String(), res, err
 }
@@ -97,8 +100,9 @@ func newFakeCompose() *fakeCompose {
 	return &fakeCompose{psOut: healthyPS}
 }
 
-// airvpnInputs scripts a full built-in-provider flow.
-func airvpnInputs() string {
+// airvpnMandatory scripts the mandatory prompts of a built-in-provider
+// flow; the Optional Subsystems answers are appended by the callers.
+func airvpnMandatory() string {
 	return strings.Join([]string{
 		"1", // provider: AirVPN
 		"vpnuser",
@@ -113,11 +117,17 @@ func airvpnInputs() string {
 	}, "\n") + "\n"
 }
 
+// airvpnInputs scripts a full flow that skips both Optional Subsystems
+// (empty answers): media server and bot.
+func airvpnInputs() string {
+	return airvpnMandatory() + "\n\n"
+}
+
 // TestRunFullBuiltInProviderFlow covers the happy path on a fresh machine.
 func TestRunFullBuiltInProviderFlow(t *testing.T) {
 	stackDir := makeStackDir(t)
 	comp := newFakeCompose()
-	out, res, err := runWizard(t, stackDir, airvpnInputs(), comp)
+	out, res, err := runWizard(t, stackDir, airvpnInputs(), comp, nil)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -180,6 +190,8 @@ func TestRunFullBuiltInProviderFlow(t *testing.T) {
 		"DEFAULT_QUOTA_GB",
 		"SESSION_TTL_HOURS",
 		"BASE_DOWNLOAD_DIR",
+		"Media Server (number",
+		"DISCORD_BOT_TOKEN (empty",
 	}
 	last := -1
 	for _, frag := range order {
@@ -229,8 +241,10 @@ func TestRunNordVPNKeepsBundledConfig(t *testing.T) {
 		"", // SERVICE_TOKEN: accept generated
 		"", // ADMIN_PASSWORD: accept generated
 		"UTC", "50", "24", "/media",
+		"", // Media Server: skip
+		"", // Bot: skip
 	}, "\n") + "\n"
-	out, _, err := runWizard(t, stackDir, inputs, comp)
+	out, _, err := runWizard(t, stackDir, inputs, comp, nil)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -261,9 +275,11 @@ func TestRunCustomOVPNPathCopiesAndConfirms(t *testing.T) {
 		"10",
 		"12",
 		"",  // BASE_DOWNLOAD_DIR default /media
+		"",  // Media Server: skip
+		"",  // Bot: skip
 		"y", // confirm replacing the bundled custom.ovpn
 	}, "\n") + "\n"
-	out, _, err := runWizard(t, stackDir, inputs, comp)
+	out, _, err := runWizard(t, stackDir, inputs, comp, nil)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -302,10 +318,10 @@ func TestRunCustomOVPNRefusalAborts(t *testing.T) {
 
 	nCustom := len(VPNProviders) + 1
 	inputs := strings.Join([]string{
-		itoa(nCustom), src, "", "", "UTC", "10", "12", "",
+		itoa(nCustom), src, "", "", "UTC", "10", "12", "", "", "",
 		"n", // refuse to replace the bundled file
 	}, "\n") + "\n"
-	_, _, err := runWizard(t, stackDir, inputs, comp)
+	_, _, err := runWizard(t, stackDir, inputs, comp, nil)
 	if err == nil || !strings.Contains(err.Error(), "refused to replace") {
 		t.Errorf("err = %v, want refusal error", err)
 	}
@@ -327,8 +343,9 @@ func TestRunRerunWithValidEnvSkipsToBoot(t *testing.T) {
 	}
 
 	comp := newFakeCompose()
-	// No input at all: if any prompt fired, the flow would fail on EOF.
-	out, res, err := runWizard(t, stackDir, "", comp)
+	// Two empty answers: the Media Server switch and the Bot enable offers
+	// both default to no, so nothing changes and nothing is rewritten.
+	out, res, err := runWizard(t, stackDir, "\n\n", comp, nil)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -338,7 +355,7 @@ func TestRunRerunWithValidEnvSkipsToBoot(t *testing.T) {
 	if len(comp.upDirs) != 1 {
 		t.Errorf("compose.Up called %d times, want 1", len(comp.upDirs))
 	}
-	if !strings.Contains(out, "skipping the prompts") {
+	if !strings.Contains(out, "skipping the mandatory prompts") {
 		t.Errorf("skip note missing:\n%s", out)
 	}
 	after, _ := os.ReadFile(envPath)
@@ -356,7 +373,7 @@ func TestRunRerunWithInvalidEnvOffersRedoAndDeclines(t *testing.T) {
 	}
 
 	comp := newFakeCompose()
-	out, res, err := runWizard(t, stackDir, "n\n", comp)
+	out, res, err := runWizard(t, stackDir, "n\n", comp, nil)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -387,7 +404,7 @@ func TestRunRerunWithInvalidEnvRedoes(t *testing.T) {
 	}
 
 	comp := newFakeCompose()
-	out, res, err := runWizard(t, stackDir, "y\n"+airvpnInputs(), comp)
+	out, res, err := runWizard(t, stackDir, "y\n"+airvpnInputs(), comp, nil)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -407,7 +424,7 @@ func TestRunRerunWithInvalidEnvRedoes(t *testing.T) {
 func TestRunVerifiesMandatorySubsystems(t *testing.T) {
 	stackDir := makeStackDir(t)
 	comp := &fakeCompose{psOut: strings.ReplaceAll(healthyPS, `{"Name":"manager","State":"running","ExitCode":0}`+"\n", "")}
-	_, res, err := runWizard(t, stackDir, airvpnInputs(), comp)
+	_, res, err := runWizard(t, stackDir, airvpnInputs(), comp, nil)
 	if err == nil {
 		t.Fatal("Run succeeded although manager is not running")
 	}
@@ -422,7 +439,7 @@ func TestRunVerifiesMandatorySubsystems(t *testing.T) {
 func TestRunBootFailureIsReported(t *testing.T) {
 	stackDir := makeStackDir(t)
 	comp := &fakeCompose{upErr: errors.New("docker daemon not running")}
-	_, res, err := runWizard(t, stackDir, airvpnInputs(), comp)
+	_, res, err := runWizard(t, stackDir, airvpnInputs(), comp, nil)
 	if err == nil || !strings.Contains(err.Error(), "docker compose up failed") {
 		t.Errorf("err = %v, want boot failure", err)
 	}
@@ -434,7 +451,7 @@ func TestRunBootFailureIsReported(t *testing.T) {
 func TestRunEOFStopsCleanly(t *testing.T) {
 	stackDir := makeStackDir(t)
 	comp := newFakeCompose()
-	_, res, err := runWizard(t, stackDir, "", comp)
+	_, res, err := runWizard(t, stackDir, "", comp, nil)
 	if err == nil || !strings.Contains(err.Error(), "input ended") {
 		t.Errorf("err = %v, want input-ended error", err)
 	}
@@ -452,7 +469,7 @@ func TestRunEOFStopsCleanly(t *testing.T) {
 func TestRunMissingStackLayoutIsReported(t *testing.T) {
 	root := t.TempDir()
 	comp := newFakeCompose()
-	_, _, err := runWizard(t, root, "", comp)
+	_, _, err := runWizard(t, root, "", comp, nil)
 	if err == nil || !strings.Contains(err.Error(), "docker-compose.yml") {
 		t.Errorf("err = %v, want missing-compose error", err)
 	}

@@ -1,0 +1,445 @@
+package wizard
+
+// optional.go is the Optional Subsystems stage of the configuration and
+// boot stage: the Media Server choice (Jellyfin, Plex, or none — exactly
+// one at most) and the Bot's Discord keys. Enabling either flips
+// COMPOSE_PROFILES, the same value the Admin Panel reads as its Media
+// Server source of truth. The stage is rerun-aware: only missing choices
+// and keys are asked, a skipped question never erases a previous choice,
+// and an already-made Media Server choice can be switched (old profile
+// off, new one on).
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+)
+
+// The Optional Subsystem profile names, as COMPOSE_PROFILES and
+// docker-compose.yml understand them. Order is the canonical write order:
+// the Bot first, then the Media Servers.
+const (
+	profileBot      = "bot"
+	profilePlex     = "plex"
+	profileJellyfin = "jellyfin"
+)
+
+// deriveProfiles computes the new COMPOSE_PROFILES value. old is the
+// previous value ("" on a fresh install); media is profileJellyfin,
+// profilePlex, or "" for no Media Server; bot enables the Bot. The Media
+// Server slot is replaced wholesale — exactly one Media Server profile is
+// ever on — and the Bot is added or left off. Profiles outside this
+// stage's vocabulary are preserved verbatim, so a rerun never silently
+// drops something the operator set by hand.
+func deriveProfiles(old, media string, bot bool) string {
+	var out []string
+	if bot {
+		out = append(out, profileBot)
+	}
+	if media == profilePlex || media == profileJellyfin {
+		out = append(out, media)
+	}
+	for _, p := range strings.Fields(old) {
+		if p != profileBot && p != profilePlex && p != profileJellyfin {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, " ")
+}
+
+// mediaFromProfiles extracts the Media Server profile from a
+// COMPOSE_PROFILES value: profilePlex, profileJellyfin, or "" for none.
+// Both present would be a hand-edited anomaly; the first one wins.
+func mediaFromProfiles(profiles string) string {
+	for _, p := range strings.Fields(profiles) {
+		if p == profilePlex || p == profileJellyfin {
+			return p
+		}
+	}
+	return ""
+}
+
+// hasProfile reports whether the space-separated profiles value contains
+// the named entry.
+func hasProfile(profiles, name string) bool {
+	for _, p := range strings.Fields(profiles) {
+		if p == name {
+			return true
+		}
+	}
+	return false
+}
+
+// verifyOptionalRunning checks the parsed ps output: every enabled
+// Optional Subsystem's container must be running. It returns the profile
+// names whose containers are not up.
+func verifyOptionalRunning(cs []composeContainer, profiles string) []string {
+	byName := make(map[string]composeContainer, len(cs))
+	for _, c := range cs {
+		byName[strings.TrimPrefix(c.Name, "/")] = c
+	}
+	var missing []string
+	for _, p := range strings.Fields(profiles) {
+		switch p {
+		case profileBot, profilePlex, profileJellyfin:
+			if c, ok := byName[p]; !ok || c.State != "running" {
+				missing = append(missing, p)
+			}
+		}
+	}
+	return missing
+}
+
+// DiscordChecker live-checks a bot token against Discord's API.
+type DiscordChecker interface {
+	// CheckToken returns the HTTP status Discord answered for the token,
+	// or a transport error when Discord could not be reached at all.
+	CheckToken(token string) (int, error)
+}
+
+// DiscordAPI is the production DiscordChecker: a GET of
+// https://discord.com/api/v10/users/@me carrying the bot token.
+type DiscordAPI struct {
+	// Client is the HTTP client; nil means a 10-second-timeout client.
+	Client *http.Client
+	// BaseURL overrides the API root (tests only).
+	BaseURL string
+}
+
+// CheckToken issues the GET and returns the response status code.
+func (d DiscordAPI) CheckToken(token string) (int, error) {
+	base := d.BaseURL
+	if base == "" {
+		base = "https://discord.com/api/v10"
+	}
+	req, err := http.NewRequest(http.MethodGet, base+"/users/@me", nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Authorization", "Bot "+token)
+	c := d.Client
+	if c == nil {
+		c = &http.Client{Timeout: 10 * time.Second}
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body) // drained so the connection is reusable
+	return resp.StatusCode, nil
+}
+
+// optionalStage is what the Optional Subsystems prompts produced.
+type optionalStage struct {
+	// media is the Media Server profile after the stage: profileJellyfin,
+	// profilePlex, or "" (none).
+	media string
+	// bot is whether the Bot should end up enabled.
+	bot bool
+	// env carries newly collected keys (DISCORD_BOT_TOKEN,
+	// DISCORD_ANNOUNCE_CHANNEL_ID) on top of what already existed.
+	env Env
+	// profiles is the new COMPOSE_PROFILES value.
+	profiles string
+	// changed reports whether anything differs from the existing .env.
+	changed bool
+}
+
+// collectOptionalFresh runs the Optional Subsystems stage on a fresh (or
+// fully rewritten) .env: the Media Server choice and the Bot keys are
+// asked in full; an empty answer skips each.
+func collectOptionalFresh(pr *prompter, check DiscordChecker) (optionalStage, error) {
+	var s optionalStage
+	s.env = Env{}
+
+	media, err := pr.askMediaServer(mediaServerExplanation)
+	if err != nil {
+		return s, err
+	}
+	s.media = media
+
+	tok, err := pr.askBotToken(botExplanation, check)
+	if err != nil {
+		return s, err
+	}
+	if tok == "" {
+		s.profiles = deriveProfiles("", s.media, false)
+		return s, nil
+	}
+	ch, err := pr.askBotChannel(botChannelExplanation)
+	if err != nil {
+		return s, err
+	}
+	s.bot = true
+	s.env["DISCORD_BOT_TOKEN"] = tok
+	s.env["DISCORD_ANNOUNCE_CHANNEL_ID"] = ch
+	s.profiles = deriveProfiles("", s.media, true)
+	return s, nil
+}
+
+// collectOptionalRerun runs the Optional Subsystems stage against an
+// existing valid .env: only what is missing is asked, a skipped question
+// keeps the previous value, and the Media Server can be switched.
+func collectOptionalRerun(pr *prompter, out io.Writer, e Env, check DiscordChecker) (optionalStage, error) {
+	var s optionalStage
+	s.env = Env{}
+	old := e["COMPOSE_PROFILES"]
+
+	// State first, then explicit offers. Answering "no" to an offer keeps
+	// the existing choice; the prompt's own skip option removes it.
+	cur := mediaFromProfiles(old)
+	// USER-FACING
+	curLabel := cur
+	if curLabel == "" {
+		curLabel = "none"
+	}
+	// USER-FACING
+	botLabel := "disabled"
+	s.bot = hasProfile(old, profileBot)
+	if s.bot {
+		botLabel = "enabled"
+	}
+	// USER-FACING
+	fmt.Fprintf(out, "Optional Subsystems: Media Server %s, Bot %s (from COMPOSE_PROFILES=%q).\n", curLabel, botLabel, old)
+
+	// Media Server: switch offer. Skipped (or declined) keeps the current
+	// value — a rerun never erases a choice by omission.
+	switchMedia, err := pr.askYesNo("Change the Media Server?")
+	if err != nil {
+		return s, err
+	}
+	s.media = cur
+	if switchMedia {
+		m, err := pr.askMediaServer(mediaServerExplanation)
+		if err != nil {
+			return s, err
+		}
+		s.media = m
+	}
+
+	// Bot: only the missing keys are asked; present values are kept.
+	tok := e["DISCORD_BOT_TOKEN"]
+	ch := e["DISCORD_ANNOUNCE_CHANNEL_ID"]
+	if s.bot {
+		if tok == "" {
+			// USER-FACING
+			fmt.Fprintln(out, "The Bot is enabled but DISCORD_BOT_TOKEN is not set — it cannot start without one.")
+			ntok, err := pr.askBotToken(botExplanation, check)
+			if err != nil {
+				return s, err
+			}
+			if ntok == "" {
+				// USER-FACING
+				fmt.Fprintln(out, "Leaving DISCORD_BOT_TOKEN unset turns the Bot back off.")
+				s.bot = false
+			} else {
+				s.env["DISCORD_BOT_TOKEN"] = ntok
+				if ch == "" {
+					nch, err := pr.askBotChannel(botChannelExplanation)
+					if err != nil {
+						return s, err
+					}
+					s.env["DISCORD_ANNOUNCE_CHANNEL_ID"] = nch
+				}
+			}
+		} else if ch == "" {
+			// USER-FACING
+			fmt.Fprintln(out, "The Bot is enabled but DISCORD_ANNOUNCE_CHANNEL_ID is not set.")
+			nch, err := pr.askBotChannel(botChannelExplanation)
+			if err != nil {
+				return s, err
+			}
+			s.env["DISCORD_ANNOUNCE_CHANNEL_ID"] = nch
+		}
+	} else {
+		enable, err := pr.askYesNo("Enable the Bot (the Discord Frontend) now?")
+		if err != nil {
+			return s, err
+		}
+		if enable {
+			ntok, err := pr.askBotToken(botExplanation, check)
+			if err != nil {
+				return s, err
+			}
+			if ntok == "" {
+				// USER-FACING
+				fmt.Fprintln(out, "No token given — the Bot stays disabled.")
+			} else {
+				nch, err := pr.askBotChannel(botChannelExplanation)
+				if err != nil {
+					return s, err
+				}
+				s.bot = true
+				s.env["DISCORD_BOT_TOKEN"] = ntok
+				s.env["DISCORD_ANNOUNCE_CHANNEL_ID"] = nch
+			}
+		}
+	}
+
+	s.profiles = deriveProfiles(old, s.media, s.bot)
+	s.changed = s.profiles != old || len(s.env) > 0
+	return s, nil
+}
+
+// askMediaServer presents the Media Server choice: Jellyfin (recommended,
+// listed first), Plex, or skip. Returns profileJellyfin, profilePlex, or
+// "" when the operator skips (no Media Server for now).
+func (p *prompter) askMediaServer(explanation string) (string, error) {
+	p.explain(explanation)
+	type choice struct {
+		value string
+		label string
+	}
+	options := []choice{
+		// USER-FACING
+		{profileJellyfin, "Jellyfin — recommended (free, no account needed; its web UI creates your admin account on first open)"},
+		// USER-FACING
+		{profilePlex, "Plex (no token asked for; claim the server in its web UI after boot — the wizard prints the link)"},
+		// USER-FACING
+		{"", "Skip — boot without a Media Server (enable one later by rerunning `bitbeard setup`)"},
+	}
+	for i, o := range options {
+		// USER-FACING
+		p.printf("  %d. %s\n", i+1, o.label)
+	}
+	for {
+		// USER-FACING
+		p.printf("Media Server (number, or jellyfin/plex/skip; empty = skip): ")
+		line, err := p.readLine()
+		if err != nil {
+			return "", err
+		}
+		if n, ok := parseNumber(line); ok {
+			if n >= 1 && n <= len(options) {
+				return options[n-1].value, nil
+			}
+			// USER-FACING
+			p.printf("  %d is not one of the choices above\n", n)
+			continue
+		}
+		switch lower(line) {
+		case "":
+			return "", nil
+		case "jellyfin":
+			return profileJellyfin, nil
+		case "plex":
+			return profilePlex, nil
+		case "skip", "none":
+			return "", nil
+		}
+		// USER-FACING
+		p.printf("  %q is not one of the choices above\n", line)
+	}
+}
+
+// askBotToken prompts for DISCORD_BOT_TOKEN with live validation against
+// Discord. An empty answer skips the Bot entirely (the caller then does
+// not ask for the channel). A 401 is Discord's definitive "unknown token"
+// and is treated as a rejectable typo: the answer is refused and asked
+// again. When Discord cannot be reached — this machine may be offline —
+// or answers unexpectedly, the operator may accept the token deliberately
+// after being told exactly that.
+func (p *prompter) askBotToken(explanation string, check DiscordChecker) (string, error) {
+	p.explain(explanation)
+	for {
+		// USER-FACING
+		p.printf("DISCORD_BOT_TOKEN (empty = run without the Bot): ")
+		line, err := p.readLine()
+		if err != nil {
+			return "", err
+		}
+		tok := trimSpace(line)
+		if tok == "" {
+			return "", nil
+		}
+		if err := rejectChangeMe("DISCORD_BOT_TOKEN", tok); err != nil {
+			// USER-FACING
+			p.printf("  %v\n", err)
+			continue
+		}
+		status, cerr := check.CheckToken(tok)
+		switch {
+		case cerr != nil:
+			// USER-FACING
+			p.printf("  Discord could not be reached to check the token (%v). This machine may be offline; you can accept the token unverified and continue deliberately.\n", cerr)
+			ok, aerr := p.askYesNo("Accept the token without checking and continue?")
+			if aerr != nil {
+				return "", aerr
+			}
+			if ok {
+				return tok, nil
+			}
+		case status == http.StatusUnauthorized:
+			// USER-FACING
+			p.printf("  Discord rejected that token (401 unknown token) — a typo? Enter it again, or leave empty to skip the Bot.\n")
+		case status != http.StatusOK:
+			// USER-FACING
+			p.printf("  Discord answered %d instead of 200, so the token could not be confirmed.\n", status)
+			ok, aerr := p.askYesNo("Accept the token anyway and continue?")
+			if aerr != nil {
+				return "", aerr
+			}
+			if ok {
+				return tok, nil
+			}
+		default:
+			return tok, nil
+		}
+	}
+}
+
+// askBotChannel prompts for DISCORD_ANNOUNCE_CHANNEL_ID. Once the Bot is
+// enabled the channel is required, so an empty answer is asked again.
+func (p *prompter) askBotChannel(explanation string) (string, error) {
+	return p.askText("DISCORD_ANNOUNCE_CHANNEL_ID", explanation, ValidateChannelID)
+}
+
+// ValidateChannelID accepts a Discord channel ID: a snowflake, digits
+// only.
+func ValidateChannelID(v string) (string, error) {
+	v = trimSpace(v)
+	if v == "" {
+		// USER-FACING
+		return "", fmt.Errorf("DISCORD_ANNOUNCE_CHANNEL_ID cannot be empty once the Bot is enabled")
+	}
+	for _, r := range v {
+		if r < '0' || r > '9' {
+			// USER-FACING
+			return "", fmt.Errorf("DISCORD_ANNOUNCE_CHANNEL_ID is %q; expected the channel's ID (digits only — right-click the channel and Copy ID)", v)
+		}
+	}
+	return v, nil
+}
+
+// Explanations shown before the Optional Subsystems questions.
+
+// USER-FACING
+const mediaServerExplanation = `A Media Server serves the Media Root to viewers outside the stack: Jellyfin or
+Plex — exactly one, or none for now. The choice is written to COMPOSE_PROFILES,
+which the Admin Panel reads as its Media Server entry.
+Jellyfin is recommended: free, no account needed, and its web UI creates your
+admin account on first open. Plex needs no setup token at all; after boot you
+claim the server in its web UI (the wizard prints the link). Claim tokens
+themselves expire within minutes, so the wizard never asks for one.
+`
+
+// USER-FACING
+const botExplanation = `The Bot is the Discord Frontend: it relays searches and announces finished
+Downloads in a channel you choose. Enabling it takes two values:
+  - DISCORD_BOT_TOKEN: from https://discord.com/developers/applications —
+    your application's Bot page, Reset Token.
+  - DISCORD_ANNOUNCE_CHANNEL_ID: the ID of the channel to announce in
+    (Discord: enable Developer Mode, right-click the channel, Copy ID).
+The token is checked against Discord's API as you enter it. Leave it empty
+to run without the Bot; it can be enabled later by rerunning ` + "`bitbeard setup`" + `.
+`
+
+// USER-FACING
+const botChannelExplanation = `The channel the Bot announces finished Downloads in: the Discord channel's
+ID (Developer Mode, right-click the channel, Copy ID) — not its name and not
+an invite link. It cannot be truly checked before boot; if the Bot starts
+but stays silent, this is the first thing to re-check.
+`
