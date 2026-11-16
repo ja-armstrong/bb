@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <link rel="stylesheet" href="/style.css">
     <!-- USER-FACING -->
     <title>Bitbeard</title>
 </head>
@@ -26,7 +27,7 @@
                 <input type="password" id="login-password" required autocomplete="current-password">
                 <!-- USER-FACING -->
                 <button type="submit">Log in</button>
-                <div id="login-message"></div>
+                <div id="login-message" aria-live="polite"></div>
             </form>
         </div>
 
@@ -82,14 +83,14 @@
                 <!-- USER-FACING -->
                 <button type="submit">Download</button>
             </form>
-            <div id="download-message"></div>
+            <div id="download-message" aria-live="polite"></div>
         </div>
         <div class="section">
             <!-- USER-FACING -->
             <h2>My Media</h2>
             <!-- USER-FACING -->
             <button id="refresh-media">Refresh My Media</button>
-            <div id="mymedia-message"></div>
+            <div id="mymedia-message" aria-live="polite"></div>
             <div class="results" id="media-list"></div>
         </div>
         <div class="section">
@@ -104,7 +105,7 @@
             <h2>Cancel All Downloads</h2>
             <!-- USER-FACING -->
             <button id="cancel-btn">Cancel All</button>
-            <div id="cancel-message"></div>
+            <div id="cancel-message" aria-live="polite"></div>
         </div>
         <div class="section">
             <!-- USER-FACING -->
@@ -118,7 +119,7 @@
                 <input type="password" id="new-password" minlength="8" required autocomplete="new-password">
                 <!-- USER-FACING -->
                 <button type="submit">Change password</button>
-                <div id="password-message"></div>
+                <div id="password-message" aria-live="polite"></div>
             </form>
         </div>
         <div class="section">
@@ -131,7 +132,7 @@
                 <input type="text" id="link-discord-id" required placeholder="e.g. 123456789012345678">
                 <!-- USER-FACING -->
                 <button type="submit">Generate Link Code</button>
-                <div id="link-message"></div>
+                <div id="link-message" aria-live="polite"></div>
             </form>
         </div>
         </div>
