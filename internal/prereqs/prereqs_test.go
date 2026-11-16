@@ -12,10 +12,12 @@ import (
 // fakeRunner fakes command execution: detection results come from fail,
 // privileged commands are recorded in ran, and after runs after each
 // privileged command so a test can flip detection results once an install
-// has "happened".
+// has "happened". out supplies canned CombinedOutput results (whoami); any
+// command without an entry returns "ok".
 type fakeRunner struct {
 	fail  map[string]bool // command key -> command fails
-	ran   []string        // privileged commands, in order
+	out   map[string]string
+	ran   []string // privileged commands, in order
 	after func(command string)
 }
 
@@ -26,6 +28,9 @@ func (f *fakeRunner) key(name string, args ...string) string {
 func (f *fakeRunner) CombinedOutput(name string, args ...string) (string, error) {
 	if f.fail[f.key(name, args...)] {
 		return "", errors.New("exit status 1")
+	}
+	if s, ok := f.out[f.key(name, args...)]; ok {
+		return s, nil
 	}
 	return "ok", nil
 }
@@ -89,11 +94,14 @@ func TestEnsureNothingMissing(t *testing.T) {
 }
 
 func TestEnsureUbuntuInstallsMissingDocker(t *testing.T) {
-	fr := &fakeRunner{fail: map[string]bool{
-		"docker --version":         true,
-		"docker compose version":   true,
-		"docker-compose --version": false,
-	}}
+	fr := &fakeRunner{
+		fail: map[string]bool{
+			"docker --version":         true,
+			"docker compose version":   true,
+			"docker-compose --version": false,
+		},
+		out: map[string]string{"whoami": "operator"},
+	}
 	fr.after = func(cmd string) {
 		if cmd == "sudo apt-get install -y docker.io" {
 			delete(fr.fail, "docker --version")
@@ -106,7 +114,7 @@ func TestEnsureUbuntuInstallsMissingDocker(t *testing.T) {
 	if res.Status != StatusFixed {
 		t.Errorf("Status = %q, want %q", res.Status, StatusFixed)
 	}
-	want := []string{"sudo apt-get update", "sudo apt-get install -y docker.io"}
+	want := []string{"sudo apt-get update", "sudo apt-get install -y docker.io", "sudo usermod -aG docker operator"}
 	if strings.Join(fr.ran, "\n") != strings.Join(want, "\n") {
 		t.Errorf("ran = %v, want %v", fr.ran, want)
 	}
@@ -117,6 +125,9 @@ func TestEnsureUbuntuInstallsMissingDocker(t *testing.T) {
 		if !strings.Contains(out, "  $ "+shown) {
 			t.Errorf("output should show the exact command %q before running it", shown)
 		}
+	}
+	if !strings.Contains(out, "docker` group") && !strings.Contains(out, "docker group") {
+		t.Errorf("output %q should note the operator was added to the docker group", out)
 	}
 }
 
@@ -286,4 +297,103 @@ func TestDetectComposeVariants(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEnsureDaemonReachable covers the decision the setup flow acts on:
+// whether this process can reach the Docker daemon at the end of the stage.
+// `docker ps` failing is exactly the case the ticket fixes — the operator
+// was just added to the `docker` group, whose membership only takes effect
+// in new login sessions — and setup must stop instead of walking into an
+// obscure "permission denied" when the wizard boots the stack.
+func TestEnsureDaemonReachable(t *testing.T) {
+	t.Run("daemon reachable with everything installed", func(t *testing.T) {
+		fr := &fakeRunner{fail: map[string]bool{}}
+		res, out, err := runEnsure(t, fr, writeOSRelease(t, ubuntuOSRelease))
+		if err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		if res.Status != StatusOK {
+			t.Errorf("Status = %q, want %q", res.Status, StatusOK)
+		}
+		if !res.DaemonReachable {
+			t.Error("DaemonReachable = false, want true: the session can reach the daemon, so setup must continue")
+		}
+		if len(fr.ran) != 0 {
+			t.Errorf("privileged commands ran = %v, want none", fr.ran)
+		}
+		if !strings.Contains(out, "already installed") {
+			t.Errorf("output %q should note that everything is already installed", out)
+		}
+	})
+
+	t.Run("daemon unreachable with everything installed", func(t *testing.T) {
+		fr := &fakeRunner{fail: map[string]bool{"docker ps": true}}
+		res, _, err := runEnsure(t, fr, writeOSRelease(t, ubuntuOSRelease))
+		if err != nil {
+			t.Fatalf("err = %v, want nil: the stage succeeded, only daemon access is missing", err)
+		}
+		if res.Status != StatusOK {
+			t.Errorf("Status = %q, want %q", res.Status, StatusOK)
+		}
+		if res.DaemonReachable {
+			t.Error("DaemonReachable = true, want false: `docker ps` cannot reach the daemon")
+		}
+		if !res.DockerPresent || !res.ComposePresent {
+			t.Errorf("detection = %v/%v, want true/true: the binaries are present", res.DockerPresent, res.ComposePresent)
+		}
+		if len(fr.ran) != 0 {
+			t.Errorf("privileged commands ran = %v, want none", fr.ran)
+		}
+	})
+
+	t.Run("daemon unreachable right after installing Docker", func(t *testing.T) {
+		fr := &fakeRunner{
+			fail: map[string]bool{
+				"docker --version":         true,
+				"docker compose version":   true,
+				"docker-compose --version": true,
+				"docker ps":                true, // group membership not yet effective in this session
+			},
+			out: map[string]string{"whoami": "operator"},
+		}
+		fr.after = func(cmd string) {
+			switch cmd {
+			case "sudo apt-get install -y docker.io":
+				delete(fr.fail, "docker --version")
+			case "sudo apt-get install -y docker-compose-v2":
+				delete(fr.fail, "docker compose version")
+			}
+		}
+		res, out, err := runEnsure(t, fr, writeOSRelease(t, ubuntuOSRelease))
+		if err != nil {
+			t.Fatalf("err = %v, want nil: the stage succeeded, setup stops on daemon access instead", err)
+		}
+		if res.Status != StatusFixed {
+			t.Errorf("Status = %q, want %q", res.Status, StatusFixed)
+		}
+		if res.DaemonReachable {
+			t.Error("DaemonReachable = true, want false: `docker ps` cannot reach the daemon in this session")
+		}
+		if !strings.Contains(strings.Join(fr.ran, "\n"), "sudo usermod -aG docker operator") {
+			t.Errorf("privileged commands ran = %v, want the operator added to the docker group", fr.ran)
+		}
+		if !strings.Contains(out, "docker` group") {
+			t.Errorf("output %q should note the operator was added to the docker group", out)
+		}
+	})
+}
+
+func TestOperatorName(t *testing.T) {
+	t.Run("whoami output is trimmed", func(t *testing.T) {
+		fr := &fakeRunner{fail: map[string]bool{}, out: map[string]string{"whoami": "operator\n"}}
+		if got := operatorName(fr); got != "operator" {
+			t.Errorf("operatorName = %q, want %q", got, "operator")
+		}
+	})
+	t.Run("whoami failure yields an empty name", func(t *testing.T) {
+		fr := &fakeRunner{fail: map[string]bool{"whoami": true}}
+		if got := operatorName(fr); got != "" {
+			t.Errorf("operatorName = %q, want empty", got)
+		}
+	})
 }

@@ -1,8 +1,9 @@
 // Package prereqs implements the prerequisite stage of the Bootstrap: it
 // detects Docker and Docker Compose, skips what is already installed, and
 // installs what is missing on Ubuntu/Debian — showing every privileged
-// command to the operator before running it. On other distros it prints the
-// exact install commands and stops cleanly, changing nothing.
+// command to the operator before running it. Installing Docker also adds
+// the operator to the `docker` group. On other distros it prints the exact
+// install commands and stops cleanly, changing nothing.
 package prereqs
 
 import (
@@ -42,6 +43,13 @@ type Result struct {
 	DockerPresent  bool
 	ComposePresent bool
 	Installed      []string // prerequisites installed by this run
+	// DaemonReachable is true when this process could reach the Docker
+	// daemon at the end of the stage (probed with `docker ps`). The setup
+	// flow uses it to stop with a new-session notice when the operator
+	// cannot yet reach the daemon — group membership only takes effect in
+	// new login sessions. The doctor ignores it and keeps reporting the
+	// daemon as its normal check.
+	DaemonReachable bool
 }
 
 // ErrUnsupportedDistro is returned when the stage cannot install anything
@@ -67,7 +75,12 @@ func Ensure(r Runner, out io.Writer, osReleasePath string) (Result, error) {
 	if docker && compose {
 		// USER-FACING
 		fmt.Fprintln(out, "Docker and Docker Compose are already installed — skipping.")
-		return Result{Status: StatusOK, DockerPresent: true, ComposePresent: true}, nil
+		return Result{
+			Status:          StatusOK,
+			DockerPresent:   true,
+			ComposePresent:  true,
+			DaemonReachable: daemonReachable(r),
+		}, nil
 	}
 
 	if goOS != "linux" {
@@ -112,14 +125,15 @@ func Ensure(r Runner, out io.Writer, osReleasePath string) (Result, error) {
 	// USER-FACING
 	fmt.Fprintln(out, "Each step needs administrator rights; sudo may ask for your password. The exact command is shown before it runs.")
 
-	plan := buildPlan(d, !docker, !compose)
+	operator := operatorName(r)
+	plan := buildPlan(d, !docker, !compose, operator)
 	if err := runPlan(r, out, plan); err != nil {
 		return Result{Status: StatusFailed, DockerPresent: docker, ComposePresent: compose}, err
 	}
 
-	if !docker {
+	if !docker && operator != "" {
 		// USER-FACING
-		fmt.Fprintln(out, "Note: `docker` may need sudo or a fresh login until the docker group membership takes effect.")
+		fmt.Fprintln(out, "Added the operator to the `docker` group: membership takes effect in new login sessions.")
 	}
 
 	// Describe the end state: re-check what actually works now.
@@ -142,7 +156,13 @@ func Ensure(r Runner, out io.Writer, osReleasePath string) (Result, error) {
 	fmt.Fprintf(out, "Installed: %s.\n", strings.Join(missing, " and "))
 	// USER-FACING
 	fmt.Fprintln(out, "Prerequisite stage complete: Docker and Docker Compose are ready.")
-	return Result{Status: StatusFixed, DockerPresent: true, ComposePresent: true, Installed: missing}, nil
+	return Result{
+		Status:          StatusFixed,
+		DockerPresent:   true,
+		ComposePresent:  true,
+		Installed:       missing,
+		DaemonReachable: daemonReachable(r),
+	}, nil
 }
 
 // Detect reports which prerequisites are already present, without changing
@@ -150,6 +170,28 @@ func Ensure(r Runner, out io.Writer, osReleasePath string) (Result, error) {
 // reuses this for its prerequisite checks.
 func Detect(r Runner) (docker, compose bool) {
 	return detect(r)
+}
+
+// daemonReachable reports whether this process can reach the Docker daemon
+// right now. `docker ps` is the most direct probe: it forces a round trip
+// to the daemon, so it fails both when the daemon is down and when the
+// calling session lacks permission to the Docker socket — the freshly added
+// `docker` group, whose membership only takes effect in new login sessions.
+// A fresh-login check like `id -nG` would not do: the group can be listed
+// while remaining ineffective in the session that just ran the setup.
+func daemonReachable(r Runner) bool {
+	_, err := r.CombinedOutput("docker", "ps")
+	return err == nil
+}
+
+// operatorName reports the login name of the operator running this stage.
+// Empty when it cannot be determined; the group step is skipped then.
+func operatorName(r Runner) string {
+	out, err := r.CombinedOutput("whoami")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }
 
 // detect reports which prerequisites are already present, without changing

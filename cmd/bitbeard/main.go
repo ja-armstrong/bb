@@ -59,10 +59,10 @@ func main() {
 		// USER-FACING
 		fmt.Fprintln(os.Stdout, "bitbeard setup — stage 1: prerequisites")
 		// Prerequisite stage of the Bootstrap; later stages land in their own tickets.
-		_, err := prereqs.Ensure(prereqs.NewRunner(), os.Stdout, "")
+		res, err := prereqs.Ensure(prereqs.NewRunner(), os.Stdout, "")
 		switch {
 		case err == nil:
-			// continue to the fetch stage below
+			// continue to the daemon-reachability stop and the fetch stage below
 		case errors.Is(err, prereqs.ErrUnsupportedDistro):
 			// Instructions were printed by the prerequisite stage.
 			os.Exit(1)
@@ -70,6 +70,23 @@ func main() {
 			// USER-FACING
 			fmt.Fprintf(os.Stderr, "bitbeard setup: %v\n", err)
 			os.Exit(1)
+		}
+		// The operator did nothing wrong, so this stop is a clean exit: the
+		// prerequisite stage could not reach the Docker daemon from this
+		// session (for example, the freshly added `docker` group only takes
+		// effect in new login sessions). Walking on would only fail later,
+		// when the wizard boots the stack with `docker compose`.
+		if !res.DaemonReachable {
+			if res.Status == prereqs.StatusOK {
+				// USER-FACING
+				fmt.Fprintln(os.Stdout, "Docker is present, but this session cannot reach the Docker daemon: it may not be running, or this session may not have permission to it.")
+			} else {
+				// USER-FACING
+				fmt.Fprintln(os.Stdout, "Docker was installed, but this session cannot reach the Docker daemon yet: permission changes such as group membership only take effect in a new login session.")
+			}
+			// USER-FACING
+			fmt.Fprintln(os.Stdout, "Open a new shell (or log out and back in), then rerun `bitbeard setup`. Rerunning is safe and idempotent: installed prerequisites are skipped, the clone is reused, and the wizard runs in the new session.")
+			os.Exit(0)
 		}
 		// Fetch stage of the Bootstrap: clone or reuse the stack repository.
 		fetchRes, err := fetch.Setup(os.Stdout)
@@ -94,11 +111,11 @@ func main() {
 		// of prerequisites, .env guardrails and stack health.
 		// USER-FACING
 		fmt.Fprintln(os.Stdout, "bitbeard setup — final verification (the doctor; it changes nothing)")
-		res := doctor.Run(doctor.Options{
+		doctorRes := doctor.Run(doctor.Options{
 			StackDir: fetchRes.StackPath,
 			Out:      os.Stdout,
 		})
-		if res.Failed {
+		if doctorRes.Failed {
 			// USER-FACING
 			fmt.Fprintln(os.Stdout, "bitbeard setup is done, but the doctor reported problems above. Follow the fix hints, then rerun `bitbeard doctor` to confirm.")
 			os.Exit(1)
