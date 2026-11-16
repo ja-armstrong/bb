@@ -15,7 +15,10 @@ curl -fsSL https://raw.githubusercontent.com/ja-armstrong/bb/main/install.sh | s
 ```
 
 The installer detects your architecture (linux amd64 / arm64), fetches the latest
-release artifact, and installs it to `~/.local/bin/bitbeard`.
+release artifact, and installs it to `~/.local/bin/bitbeard`. If `~/.local/bin`
+is not on your `PATH`, it asks on your terminal before touching any rc files
+(non-interactive runs get the warning only, nothing is changed), and after a
+PATH fix offers to run `bitbeard setup` right away in a fresh login shell.
 
 ## Manual install
 
