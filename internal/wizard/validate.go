@@ -139,6 +139,26 @@ func ValidAbsPath(v string) bool {
 	return true
 }
 
+// ValidateServerCountries accepts an empty answer (gluetun picks a server
+// itself) or a comma-separated list of country names for gluetun's server
+// filter, without empty entries.
+func ValidateServerCountries(v string) (string, error) {
+	v = trimSpace(v)
+	if v == "" {
+		return "", nil
+	}
+	if err := rejectChangeMe("SERVER_COUNTRIES", v); err != nil {
+		return "", err
+	}
+	for _, part := range strings.Split(v, ",") {
+		if trimSpace(part) == "" {
+			// USER-FACING
+			return "", fmt.Errorf("SERVER_COUNTRIES is %q; use comma-separated country names without empty entries", v)
+		}
+	}
+	return v, nil
+}
+
 // ValidateOVPNPath accepts a path to an existing .ovpn (or .conf) file.
 func ValidateOVPNPath(v string) (string, error) {
 	v = trimSpace(v)

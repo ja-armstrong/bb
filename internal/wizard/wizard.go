@@ -5,8 +5,11 @@
 // land in COMPOSE_PROFILES — writes the stack's .env, keeps or replaces
 // the OpenVPN configuration file, boots the stack, and verifies the
 // mandatory Subsystems plus any enabled Optional Subsystems are running.
-// On rerun, a valid .env is kept wholesale and only the missing optional
-// choices and keys are asked; the Media Server can also be switched.
+// Known VPN providers run gluetun natively (no .ovpn file); the custom
+// provider copies the operator's .ovpn into openvpn/custom.ovpn. On
+// rerun, a valid .env is kept wholesale and only the missing optional
+// choices and keys are asked; the VPN provider and the Media Server can
+// also be switched.
 package wizard
 
 import (
@@ -105,19 +108,33 @@ func Run(o Options) (Result, error) {
 			// USER-FACING
 			fmt.Fprintf(out, "Found a valid .env at %s — skipping the mandatory prompts.\n", res.EnvPath)
 
+			vpnStage, err := collectVPNRerun(pr, out, e)
+			if err != nil {
+				return res, err
+			}
 			stage, err := collectOptionalRerun(pr, out, e, o.discord())
 			if err != nil {
 				return res, err
 			}
-			if stage.changed {
+			if stage.changed || vpnStage.changed {
 				// Overlay the newly collected keys on the kept values;
 				// the prompted stage always wins, the rest is preserved.
 				ne := mergeEnv(e, stage.env)
+				for k, v := range vpnStage.env {
+					ne[k] = v
+				}
 				ne["COMPOSE_PROFILES"] = stage.profiles
 				// USER-FACING
 				fmt.Fprintf(out, "Updating %s:\n", res.EnvPath)
-				for _, k := range []string{"DISCORD_BOT_TOKEN", "DISCORD_ANNOUNCE_CHANNEL_ID"} {
-					if v, ok := stage.env[k]; ok {
+				for _, k := range []string{
+					"VPN_PROVIDER", "OPENVPN_USER", "OPENVPN_PASSWORD",
+					customConfigEnvKey, serverCountriesEnvKey,
+					"DISCORD_BOT_TOKEN", "DISCORD_ANNOUNCE_CHANNEL_ID",
+				} {
+					if v, ok := vpnStage.env[k]; ok {
+						// USER-FACING
+						fmt.Fprintf(out, "  %s=%s\n", k, v)
+					} else if v, ok := stage.env[k]; ok {
 						// USER-FACING
 						fmt.Fprintf(out, "  %s=%s\n", k, v)
 					}
@@ -144,7 +161,25 @@ func Run(o Options) (Result, error) {
 				}
 			} else {
 				// USER-FACING
-				fmt.Fprintln(out, "The Optional Subsystems are already as requested — nothing was changed.")
+				fmt.Fprintln(out, "The VPN provider and the Optional Subsystems are already as requested — nothing was changed.")
+			}
+
+			// File-flow follow-ups of a VPN provider switch: the custom
+			// copy replaces the mounted config, the switch back to a known
+			// provider removes it.
+			if vpnStage.ovpnSrc != "" {
+				if err := applyVPNConfig(composeDir, vpnStage.ovpnSrc, out, func(question string) bool {
+					ok, err := pr.askYesNo(question)
+					return err == nil && ok
+				}); err != nil {
+					return res, err
+				}
+			}
+			if vpnStage.clearCopy {
+				if err := removeVPNConfig(composeDir, out); err != nil {
+					// USER-FACING
+					return res, fmt.Errorf("removing the unused OpenVPN config: %w", err)
+				}
 			}
 
 			if err := boot(o, composeDir, out, &res, stage.profiles); err != nil {
@@ -219,11 +254,13 @@ func Run(o Options) (Result, error) {
 		return res, fmt.Errorf("checking .gitignore: %w", err)
 	}
 
-	if err := applyVPNConfig(composeDir, c.ovpnSrc, e["VPN_PROVIDER"], out, func(question string) bool {
-		ok, err := pr.askYesNo(question)
-		return err == nil && ok
-	}); err != nil {
-		return res, err
+	if isCustomProvider(e["VPN_PROVIDER"]) {
+		if err := applyVPNConfig(composeDir, c.ovpnSrc, out, func(question string) bool {
+			ok, err := pr.askYesNo(question)
+			return err == nil && ok
+		}); err != nil {
+			return res, err
+		}
 	}
 
 	if err := boot(o, composeDir, out, &res, profiles); err != nil {
@@ -251,14 +288,16 @@ func collect(o Options, out io.Writer, pr *prompter) (collected, error) {
 	}
 	c.env["VPN_PROVIDER"] = prov.ID
 
-	if prov.ID == customProvider {
+	if isCustomProvider(prov.ID) {
 		// The custom path embeds its credentials in the .ovpn file, so the
-		// OpenVPN user/password are not asked.
+		// OpenVPN user/password are not asked, and gluetun connects
+		// through the copied file at this path in the container.
 		src, err := pr.askText("Path to your .ovpn file", customFileExplanation, ValidateOVPNPath)
 		if err != nil {
 			return c, err
 		}
 		c.ovpnSrc = src
+		c.env[customConfigEnvKey] = customConfigMountPath
 	} else {
 		user, err := pr.askText("OPENVPN_USER (your VPN service username)", credsExplanation, ValidateNonEmpty("OPENVPN_USER"))
 		if err != nil {
@@ -271,15 +310,14 @@ func collect(o Options, out io.Writer, pr *prompter) (collected, error) {
 		c.env["OPENVPN_USER"] = user
 		c.env["OPENVPN_PASSWORD"] = pass
 
-		// Any provider other than NordVPN should bring its own .ovpn file,
-		// because the bundled one is a NordVPN config.
-		if prov.ID != nordvpnDefault {
-			src, err := pr.askText("Path to your .ovpn file (empty keeps the bundled NordVPN file)", otherProviderFileExplanation, ValidateOptionalOVPNPath)
-			if err != nil {
-				return c, err
-			}
-			c.ovpnSrc = src
+		// Native mode: no .ovpn file is needed or asked for. Optional
+		// server selection filters which servers gluetun picks from;
+		// an empty answer lets gluetun choose freely.
+		countries, err := pr.askText("SERVER_COUNTRIES (optional; comma-separated countries, empty = gluetun picks a server)", serverCountriesExplanation, ValidateServerCountries)
+		if err != nil {
+			return c, err
 		}
+		c.env[serverCountriesEnvKey] = countries
 	}
 
 	// Generated secrets, shown for confirmation.
@@ -342,14 +380,110 @@ func collect(o Options, out io.Writer, pr *prompter) (collected, error) {
 	return c, nil
 }
 
+// vpnRerunStage is what the VPN provider stage produced on a rerun.
+type vpnRerunStage struct {
+	// env carries the VPN keys to overlay on the kept .env: the new
+	// provider plus whichever mode's keys changed, cleared values
+	// included, so a switch leaves no stale provider settings behind.
+	env Env
+	// ovpnSrc is the user .ovpn path to copy, in the custom flow.
+	ovpnSrc string
+	// clearCopy is true when the copied openvpn/custom.ovpn should be
+	// removed (the switch back to a known provider; already confirmed).
+	clearCopy bool
+	// changed reports whether any VPN setting differs.
+	changed bool
+}
+
+// collectVPNRerun runs the VPN provider stage against an existing valid
+// .env: the current provider is shown, the operator is offered a switch,
+// and declining leaves every VPN setting untouched. A switch re-collects
+// the chosen mode's keys (credentials and optional server selection for a
+// known provider; the .ovpn file for the custom provider) and clears the
+// other mode's keys, so the .env always matches the chosen provider.
+func collectVPNRerun(pr *prompter, out io.Writer, e Env) (vpnRerunStage, error) {
+	var s vpnRerunStage
+	s.env = Env{}
+
+	cur := normalizeProvider(e["VPN_PROVIDER"])
+	// USER-FACING
+	fmt.Fprintf(out, "VPN provider: %s (from the existing .env).\n", cur)
+	change, err := pr.askYesNo("Change the VPN provider?")
+	if err != nil {
+		return s, err
+	}
+	if !change {
+		return s, nil
+	}
+
+	prov, err := pr.askProvider(providerExplanation)
+	if err != nil {
+		return s, err
+	}
+	s.env["VPN_PROVIDER"] = prov.ID
+	s.changed = true
+
+	if isCustomProvider(prov.ID) {
+		src, err := pr.askText("Path to your .ovpn file", customFileExplanation, ValidateOVPNPath)
+		if err != nil {
+			return s, err
+		}
+		s.ovpnSrc = src
+		s.env[customConfigEnvKey] = customConfigMountPath
+		// The custom flow carries its credentials inside the .ovpn file
+		// and names its server there too; clear the native mode's keys so
+		// nothing stale survives the switch.
+		s.env["OPENVPN_USER"] = ""
+		s.env["OPENVPN_PASSWORD"] = ""
+		s.env[serverCountriesEnvKey] = ""
+		return s, nil
+	}
+
+	user, err := pr.askText("OPENVPN_USER (your VPN service username)", credsExplanation, ValidateNonEmpty("OPENVPN_USER"))
+	if err != nil {
+		return s, err
+	}
+	pass, err := pr.askText("OPENVPN_PASSWORD (your VPN service password)", credsExplanation, ValidateNonEmpty("OPENVPN_PASSWORD"))
+	if err != nil {
+		return s, err
+	}
+	countries, err := pr.askText("SERVER_COUNTRIES (optional; comma-separated countries, empty = gluetun picks a server)", serverCountriesExplanation, ValidateServerCountries)
+	if err != nil {
+		return s, err
+	}
+	s.env["OPENVPN_USER"] = user
+	s.env["OPENVPN_PASSWORD"] = pass
+	s.env[serverCountriesEnvKey] = countries
+	s.env[customConfigEnvKey] = ""
+
+	if isCustomProvider(cur) {
+		// The copied .ovpn file is now unused. Removing it is the clean
+		// switch; declining keeps it on disk (unused by gluetun) by the
+		// operator's explicit choice.
+		// USER-FACING
+		ok, err := pr.askYesNo("Delete the now-unused openvpn/custom.ovpn copy (your original .ovpn file is untouched)?")
+		if err != nil {
+			return s, err
+		}
+		if ok {
+			s.clearCopy = true
+		} else {
+			// USER-FACING
+			fmt.Fprintf(out, "Leaving %s in place; gluetun ignores it while VPN_PROVIDER=%s.\n", ovpnRelPath, prov.ID)
+		}
+	}
+	return s, nil
+}
+
 // promptExplanations are the explanation blocks shown before each question.
 // Each names what the key is for and where the value comes from.
 
 // USER-FACING
 const providerExplanation = `Bitbeard tunnels every Subsystem through gluetun, which connects to your VPN provider.
-Choose the provider from gluetun's supported list, or pick the last option to connect
-with your own .ovpn file instead. Your VPN credentials are asked next; the connection
-is only made when the stack boots.
+Choose a provider from gluetun's supported list and gluetun connects to it natively:
+only your VPN credentials are asked for, no .ovpn file is needed. The last option is
+the custom provider — you bring your own .ovpn file and gluetun connects through it.
+The connection is only made when the stack boots.
 `
 
 // USER-FACING
@@ -361,15 +495,16 @@ restarting after boot, these are the first thing to re-check.
 
 // USER-FACING
 const customFileExplanation = `Your .ovpn file carries the whole connection, including your credentials, so no VPN
-username/password is asked. It will be copied to openvpn/custom.ovpn, replacing the
-bundled NordVPN config (with a confirmation first).
+username/password is asked. It will be copied to openvpn/custom.ovpn — with a
+confirmation first when something is already there — and gluetun connects through
+exactly that file.
 `
 
 // USER-FACING
-const otherProviderFileExplanation = `The bundled openvpn/custom.ovpn is a NordVPN configuration, and gluetun connects
-through exactly that file — so for another provider, point at an .ovpn file from your
-provider to actually use its servers. Leave empty to keep the bundled file for now
-(a note will remind you).
+const serverCountriesExplanation = `Gluetun picks a server for you automatically. To keep the exit inside particular
+countries, name them here — comma-separated, as gluetun spells them (see gluetun's
+server list for your provider, e.g. "Netherlands,United States"). Leave empty to let
+gluetun choose freely among all of the provider's servers.
 `
 
 // USER-FACING

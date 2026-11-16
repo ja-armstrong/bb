@@ -11,12 +11,24 @@ services:
     environment:
       - VPN_SERVICE_PROVIDER=${VPN_PROVIDER}
       - VPN_TYPE=openvpn
-      - OPENVPN_CONFIG_DIR=/gluetun/openvpn
-      - OPENVPN_CONFIG_NAME=custom
+      # Native mode (any known provider): both keys below stay empty in
+      # .env and gluetun picks and authenticates servers itself from
+      # VPN_SERVICE_PROVIDER + OPENVPN_USER/PASSWORD. Custom provider: the
+      # wizard (or a hand edit) sets OPENVPN_CUSTOM_CONFIG to the .ovpn
+      # file as this container sees it. Gluetun treats an empty-but-set
+      # value exactly like an unset one, so an empty OPENVPN_CUSTOM_CONFIG
+      # cannot re-enter custom mode (verified against gluetun's settings
+      # reader).
+      - OPENVPN_CUSTOM_CONFIG=${OPENVPN_CUSTOM_CONFIG:-}
+      - SERVER_COUNTRIES=${SERVER_COUNTRIES:-}
       - OPENVPN_USER=${OPENVPN_USER}
       - OPENVPN_PASSWORD=${OPENVPN_PASSWORD}
       - TZ=${TZ}
     volumes:
+      # Carries openvpn/custom.ovpn in for the custom provider. In native
+      # mode gluetun never reads the mounted path (OPENVPN_CUSTOM_CONFIG is
+      # empty), so the mount is inert there; compose interpolation cannot
+      # drop a volume, so it stays declared.
       - ./openvpn:/gluetun/openvpn
     restart: unless-stopped
 

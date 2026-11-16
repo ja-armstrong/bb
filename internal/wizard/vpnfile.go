@@ -1,12 +1,18 @@
+// vpnfile.go handles openvpn/custom.ovpn in the custom provider's file
+// flow: a user's .ovpn file is copied over what is there — visibly, and
+// only after an explicit confirmation. Known providers never touch this
+// file: gluetun runs natively from VPN_SERVICE_PROVIDER plus
+// OPENVPN_USER/OPENVPN_PASSWORD with no .ovpn file at all, and switching
+// back to a known provider removes the copy again so no unused config is
+// left mounted.
+
 package wizard
 
-// vpnfile.go handles openvpn/custom.ovpn: the bundled NordVPN default is
-// kept as-is; a user's own .ovpn file is copied over it — visibly, and only
-// after an explicit confirmation when something is already there.
-
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -15,31 +21,13 @@ import (
 // to the compose directory.
 var ovpnRelPath = filepath.Join("openvpn", "custom.ovpn")
 
-// applyVPNConfig keeps or replaces <composeDir>/openvpn/custom.ovpn.
-//
-// src is the user's .ovpn path; empty means "keep what is there". provider
-// is the chosen VPN_PROVIDER value. confirm is asked (with the visible
-// note) whenever an existing file would be replaced; a refusal aborts the
-// whole wizard with an error rather than overwriting silently.
-func applyVPNConfig(composeDir, src, provider string, out io.Writer, confirm func(string) bool) error {
+// applyVPNConfig replaces <composeDir>/openvpn/custom.ovpn with the user's
+// .ovpn file (the custom provider's whole connection, credentials
+// included). confirm is asked (with the visible note) whenever an existing
+// file would be replaced; a refusal aborts the whole wizard with an error
+// rather than overwriting silently.
+func applyVPNConfig(composeDir, src string, out io.Writer, confirm func(string) bool) error {
 	dst := filepath.Join(composeDir, ovpnRelPath)
-
-	if src == "" {
-		switch provider {
-		case nordvpnDefault:
-			// USER-FACING
-			fmt.Fprintf(out, "Keeping the bundled NordVPN configuration at %s.\n", ovpnRelPath)
-		case customProvider:
-			// Not reachable through the normal flow (the custom path always
-			// asks for a file), but honest if it ever is.
-			// USER-FACING
-			return fmt.Errorf("VPN_PROVIDER=%s needs an .ovpn file, but none was given", customProvider)
-		default:
-			// USER-FACING
-			fmt.Fprintf(out, "Note: %s still holds the bundled NordVPN configuration. gluetun connects through that file, so the tunnel will use NordVPN servers, not %s servers. Replace the file later (any .ovpn from your provider) and run `docker compose up -d` again to apply it.\n", ovpnRelPath, provider)
-		}
-		return nil
-	}
 
 	data, err := os.ReadFile(src)
 	if err != nil {
@@ -65,4 +53,24 @@ func applyVPNConfig(composeDir, src, provider string, out io.Writer, confirm fun
 	// USER-FACING
 	fmt.Fprintf(out, "Copied your OpenVPN configuration from %s to %s.\n", src, ovpnRelPath)
 	return nil
+}
+
+// removeVPNConfig deletes the copied openvpn/custom.ovpn: the cleanup of
+// the switch back to a known provider, which leaves gluetun native with no
+// .ovpn file in play. A missing file is not an error. The original .ovpn
+// the operator supplied is never touched — only the stack's copy is.
+func removeVPNConfig(composeDir string, out io.Writer) error {
+	dst := filepath.Join(composeDir, ovpnRelPath)
+	err := os.Remove(dst)
+	switch {
+	case err == nil:
+		// USER-FACING
+		fmt.Fprintf(out, "Removed the unused %s copy — your original .ovpn file is untouched.\n", ovpnRelPath)
+		return nil
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	default:
+		// USER-FACING
+		return fmt.Errorf("removing %s: %w", ovpnRelPath, err)
+	}
 }

@@ -101,13 +101,14 @@ func newFakeCompose() *fakeCompose {
 }
 
 // airvpnMandatory scripts the mandatory prompts of a built-in-provider
-// flow; the Optional Subsystems answers are appended by the callers.
+// flow (native mode: no .ovpn file is asked); the Optional Subsystems
+// answers are appended by the callers.
 func airvpnMandatory() string {
 	return strings.Join([]string{
 		"1", // provider: AirVPN
 		"vpnuser",
 		"vpnpass",
-		"", // own .ovpn path: empty (keep bundled, with warning)
+		"", // SERVER_COUNTRIES: empty (gluetun auto-picks)
 		"", // SERVICE_TOKEN: accept generated
 		"", // ADMIN_PASSWORD: accept generated
 		"Europe/Berlin",
@@ -184,6 +185,7 @@ func TestRunFullBuiltInProviderFlow(t *testing.T) {
 		"VPN provider (number or name):",
 		"OPENVPN_USER",
 		"OPENVPN_PASSWORD",
+		"SERVER_COUNTRIES (optional",
 		"Suggested SERVICE_TOKEN",
 		"Suggested ADMIN_PASSWORD",
 		"TZ (IANA timezone",
@@ -206,6 +208,11 @@ func TestRunFullBuiltInProviderFlow(t *testing.T) {
 		last = i
 	}
 
+	// Native mode: no .ovpn file is asked for or touched.
+	if strings.Contains(out, "Path to your .ovpn file") {
+		t.Errorf("a known provider must not be asked for an .ovpn file:\n%s", out)
+	}
+
 	// A generated secret was shown and its confirmation offered.
 	if !strings.Contains(out, "Press Enter to accept the suggested SERVICE_TOKEN") {
 		t.Errorf("generated-secret confirmation missing:\n%s", out)
@@ -214,9 +221,10 @@ func TestRunFullBuiltInProviderFlow(t *testing.T) {
 	if !strings.Contains(out, "cannot be truly checked before boot") {
 		t.Errorf("honest VPN note missing:\n%s", out)
 	}
-	// The bundled-file note for a non-NordVPN provider without a file.
-	if !strings.Contains(out, "still holds the bundled NordVPN configuration") {
-		t.Errorf("bundled NordVPN note missing:\n%s", out)
+	// No bundled-file note: native mode leaves openvpn/custom.ovpn alone
+	// and gluetun never reads it.
+	if strings.Contains(out, "bundled NordVPN configuration") {
+		t.Errorf("unexpected bundled-file note:\n%s", out)
 	}
 	// .gitignore already covers .env: nothing appended, no note.
 	if strings.Contains(out, "Added /.env") {
@@ -228,18 +236,23 @@ func TestRunFullBuiltInProviderFlow(t *testing.T) {
 	}
 }
 
+// TestRunNordVPNKeepsBundledConfig covers native mode end to end: NordVPN
+// needs no .ovpn file at all — gluetun picks and authenticates servers
+// from VPN_SERVICE_PROVIDER plus the credentials — and the bundled
+// openvpn/custom.ovpn is neither asked about nor modified.
 func TestRunNordVPNKeepsBundledConfig(t *testing.T) {
 	stackDir := makeStackDir(t)
 	comp := newFakeCompose()
 	bundled, _ := os.ReadFile(filepath.Join(stackDir, "bitbeard", "openvpn", "custom.ovpn"))
 
-	// NordVPN: no own .ovpn path is asked, so one prompt fewer.
+	// NordVPN: creds and an optional server-selection answer, no file.
 	inputs := strings.Join([]string{
 		"nordvpn", // provider by name
 		"vpnuser",
 		"vpnpass",
-		"", // SERVICE_TOKEN: accept generated
-		"", // ADMIN_PASSWORD: accept generated
+		"Netherlands", // SERVER_COUNTRIES
+		"",            // SERVICE_TOKEN: accept generated
+		"",            // ADMIN_PASSWORD: accept generated
 		"UTC", "50", "24", "/media",
 		"", // Media Server: skip
 		"", // Bot: skip
@@ -248,12 +261,22 @@ func TestRunNordVPNKeepsBundledConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
+	if strings.Contains(out, "Path to your .ovpn file") {
+		t.Errorf("the .ovpn prompt fired for a known provider:\n%s", out)
+	}
 	after, _ := os.ReadFile(filepath.Join(stackDir, "bitbeard", "openvpn", "custom.ovpn"))
 	if string(after) != string(bundled) {
 		t.Errorf("bundled custom.ovpn was modified:\n%s", after)
 	}
-	if !strings.Contains(out, "Keeping the bundled NordVPN configuration") {
-		t.Errorf("keep-note missing:\n%s", out)
+	e := readEnvFile(t, stackDir)
+	if e["OPENVPN_CUSTOM_CONFIG"] != "" {
+		t.Errorf("OPENVPN_CUSTOM_CONFIG = %q, want empty in native mode", e["OPENVPN_CUSTOM_CONFIG"])
+	}
+	if e["SERVER_COUNTRIES"] != "Netherlands" {
+		t.Errorf("SERVER_COUNTRIES = %q, want Netherlands", e["SERVER_COUNTRIES"])
+	}
+	if probs := e.Problems(); len(probs) > 0 {
+		t.Errorf("native-mode .env invalid: %v", probs)
 	}
 }
 
@@ -299,6 +322,9 @@ func TestRunCustomOVPNPathCopiesAndConfirms(t *testing.T) {
 	if e["OPENVPN_USER"] != "" || e["OPENVPN_PASSWORD"] != "" {
 		t.Errorf("custom path should leave VPN creds empty, got %q/%q", e["OPENVPN_USER"], e["OPENVPN_PASSWORD"])
 	}
+	if e["OPENVPN_CUSTOM_CONFIG"] != customConfigMountPath {
+		t.Errorf("OPENVPN_CUSTOM_CONFIG = %q, want %q", e["OPENVPN_CUSTOM_CONFIG"], customConfigMountPath)
+	}
 	if probs := e.Problems(); len(probs) > 0 {
 		t.Errorf("custom-path .env invalid: %v", probs)
 	}
@@ -343,9 +369,10 @@ func TestRunRerunWithValidEnvSkipsToBoot(t *testing.T) {
 	}
 
 	comp := newFakeCompose()
-	// Two empty answers: the Media Server switch and the Bot enable offers
-	// both default to no, so nothing changes and nothing is rewritten.
-	out, res, err := runWizard(t, stackDir, "\n\n", comp, nil)
+	// Three empty answers: the VPN provider switch offer, the Media Server
+	// switch offer and the Bot enable offer all default to no, so nothing
+	// changes and nothing is rewritten.
+	out, res, err := runWizard(t, stackDir, "\n\n\n", comp, nil)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -472,6 +499,152 @@ func TestRunMissingStackLayoutIsReported(t *testing.T) {
 	_, _, err := runWizard(t, root, "", comp, nil)
 	if err == nil || !strings.Contains(err.Error(), "docker-compose.yml") {
 		t.Errorf("err = %v, want missing-compose error", err)
+	}
+}
+
+// TestRunRerunSwitchesKnownToCustom covers the rerun switch to the custom
+// provider: the .ovpn file is asked for and copied, the native mode's keys
+// are cleared, and the config path lands in .env.
+func TestRunRerunSwitchesKnownToCustom(t *testing.T) {
+	stackDir := makeStackDir(t)
+	writeValidEnv(t, stackDir, "", nil)
+	src := filepath.Join(t.TempDir(), "my-tunnel.ovpn")
+	if err := os.WriteFile(src, []byte("client\nremote 5.6.7.8 1194\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	comp := newFakeCompose()
+	inputs := strings.Join([]string{
+		"y",                         // change the VPN provider
+		itoa(len(VPNProviders) + 1), // custom
+		src,                         // path to the .ovpn file
+		"",                          // Media Server: skip
+		"",                          // Bot: skip
+		"y",                         // confirm replacing what is at openvpn/custom.ovpn
+	}, "\n") + "\n"
+	out, res, err := runWizard(t, stackDir, inputs, comp, nil)
+	if err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out)
+	}
+	if !res.WroteEnv || !res.Booted {
+		t.Errorf("result = %+v, want .env rewritten and booted", res)
+	}
+	e := readEnvFile(t, stackDir)
+	if e["VPN_PROVIDER"] != customProvider {
+		t.Errorf("VPN_PROVIDER = %q, want custom", e["VPN_PROVIDER"])
+	}
+	if e["OPENVPN_CUSTOM_CONFIG"] != customConfigMountPath {
+		t.Errorf("OPENVPN_CUSTOM_CONFIG = %q, want %q", e["OPENVPN_CUSTOM_CONFIG"], customConfigMountPath)
+	}
+	if e["OPENVPN_USER"] != "" || e["OPENVPN_PASSWORD"] != "" {
+		t.Errorf("native credentials survived the switch: %q/%q", e["OPENVPN_USER"], e["OPENVPN_PASSWORD"])
+	}
+	if e["SERVER_COUNTRIES"] != "" {
+		t.Errorf("SERVER_COUNTRIES = %q, want cleared", e["SERVER_COUNTRIES"])
+	}
+	if probs := e.Problems(); len(probs) > 0 {
+		t.Errorf("switched .env invalid: %v", probs)
+	}
+	data, err := os.ReadFile(filepath.Join(stackDir, "bitbeard", "openvpn", "custom.ovpn"))
+	if err != nil || string(data) != "client\nremote 5.6.7.8 1194\n" {
+		t.Errorf("custom.ovpn = %q (err %v), want the user's file", data, err)
+	}
+	if !strings.Contains(out, "Copied your OpenVPN configuration") {
+		t.Errorf("copy note missing:\n%s", out)
+	}
+}
+
+// TestRunRerunSwitchesCustomToKnown covers the reverse switch: credentials
+// and server selection are asked, the config path is cleared and the
+// copied .ovpn is removed, leaving no stale file or env behind.
+func TestRunRerunSwitchesCustomToKnown(t *testing.T) {
+	stackDir := makeStackDir(t)
+	writeValidEnv(t, stackDir, "", Env{
+		"VPN_PROVIDER":          customProvider,
+		"OPENVPN_CUSTOM_CONFIG": customConfigMountPath,
+	})
+	customPath := filepath.Join(stackDir, "bitbeard", "openvpn", "custom.ovpn")
+	if err := os.WriteFile(customPath, []byte("client\nremote 5.6.7.8 1194\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	comp := newFakeCompose()
+	inputs := strings.Join([]string{
+		"y",       // change the VPN provider
+		"nordvpn", // known provider by name
+		"vpnuser2",
+		"vpnpass2",
+		"Netherlands", // SERVER_COUNTRIES
+		"y",           // delete the now-unused copy
+		"",            // Media Server: skip
+		"",            // Bot: skip
+	}, "\n") + "\n"
+	out, res, err := runWizard(t, stackDir, inputs, comp, nil)
+	if err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out)
+	}
+	if !res.WroteEnv || !res.Booted {
+		t.Errorf("result = %+v, want .env rewritten and booted", res)
+	}
+	e := readEnvFile(t, stackDir)
+	if e["VPN_PROVIDER"] != "nordvpn" {
+		t.Errorf("VPN_PROVIDER = %q, want nordvpn", e["VPN_PROVIDER"])
+	}
+	if e["OPENVPN_USER"] != "vpnuser2" || e["OPENVPN_PASSWORD"] != "vpnpass2" {
+		t.Errorf("credentials = %q/%q, want the new ones", e["OPENVPN_USER"], e["OPENVPN_PASSWORD"])
+	}
+	if e["SERVER_COUNTRIES"] != "Netherlands" {
+		t.Errorf("SERVER_COUNTRIES = %q, want Netherlands", e["SERVER_COUNTRIES"])
+	}
+	if e["OPENVPN_CUSTOM_CONFIG"] != "" {
+		t.Errorf("OPENVPN_CUSTOM_CONFIG = %q, want cleared", e["OPENVPN_CUSTOM_CONFIG"])
+	}
+	if probs := e.Problems(); len(probs) > 0 {
+		t.Errorf("switched .env invalid: %v", probs)
+	}
+	if _, err := os.Stat(customPath); !os.IsNotExist(err) {
+		t.Errorf("the unused custom.ovpn survived the switch (stat err %v)", err)
+	}
+	if !strings.Contains(out, "Removed the unused "+filepath.Join("openvpn", "custom.ovpn")) {
+		t.Errorf("removal note missing:\n%s", out)
+	}
+}
+
+// TestRunRerunCustomToKnownCanKeepTheCopy covers the operator declining
+// the cleanup: the file stays (unused) by explicit choice, the env is
+// still switched cleanly.
+func TestRunRerunCustomToKnownCanKeepTheCopy(t *testing.T) {
+	stackDir := makeStackDir(t)
+	writeValidEnv(t, stackDir, "", Env{
+		"VPN_PROVIDER":          customProvider,
+		"OPENVPN_CUSTOM_CONFIG": customConfigMountPath,
+	})
+	customPath := filepath.Join(stackDir, "bitbeard", "openvpn", "custom.ovpn")
+	if err := os.WriteFile(customPath, []byte("client\nremote 5.6.7.8 1194\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	comp := newFakeCompose()
+	inputs := strings.Join([]string{
+		"y",       // change the VPN provider
+		"nordvpn", // known provider by name
+		"vpnuser2",
+		"vpnpass2",
+		"",  // SERVER_COUNTRIES: auto-pick
+		"n", // keep the copy
+		"",  // Media Server: skip
+		"",  // Bot: skip
+	}, "\n") + "\n"
+	out, _, err := runWizard(t, stackDir, inputs, comp, nil)
+	if err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out)
+	}
+	if _, statErr := os.Stat(customPath); statErr != nil {
+		t.Errorf("the copy was removed although the operator kept it: %v", statErr)
+	}
+	if !strings.Contains(out, "gluetun ignores it while VPN_PROVIDER=nordvpn") {
+		t.Errorf("keep-note missing:\n%s", out)
+	}
+	e := readEnvFile(t, stackDir)
+	if e["VPN_PROVIDER"] != "nordvpn" || e["OPENVPN_CUSTOM_CONFIG"] != "" {
+		t.Errorf("env not switched cleanly: provider %q, config %q", e["VPN_PROVIDER"], e["OPENVPN_CUSTOM_CONFIG"])
 	}
 }
 
