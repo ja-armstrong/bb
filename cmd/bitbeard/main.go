@@ -4,8 +4,9 @@
 //
 // setup runs the prerequisite stage, the fetch stage (clone/reuse of the
 // stack repository), the configuration and boot stage, and finally the
-// doctor as its verification step. update is still a stub; its behaviour
-// lands in a later ticket.
+// doctor as its verification step. update pulls the stack clone to the
+// latest revision, re-checks prerequisites, rebuilds and restarts the
+// stack, and finishes with the doctor.
 package main
 
 import (
@@ -16,6 +17,7 @@ import (
 	"github.com/ja-armstrong/bb/internal/doctor"
 	"github.com/ja-armstrong/bb/internal/fetch"
 	"github.com/ja-armstrong/bb/internal/prereqs"
+	"github.com/ja-armstrong/bb/internal/update"
 	"github.com/ja-armstrong/bb/internal/wizard"
 )
 
@@ -44,13 +46,6 @@ Commands:
   help     show this help
 
 Use "bitbeard <command>" to see what a command will do.`
-
-// USER-FACING
-const usageUpdate = `bitbeard update
-
-Update the bitbeard binary and the running stack to the latest release.
-
-(Not implemented yet — this stub only reports what it will do.)`
 
 func main() {
 	if len(os.Args) < 2 {
@@ -114,8 +109,20 @@ func main() {
 			os.Exit(1)
 		}
 	case "update":
-		// USER-FACING
-		fmt.Fprintln(os.Stdout, usageUpdate)
+		// One command: pull, re-check prerequisites, rebuild + up, doctor
+		// last. A stopping point (dirty tree, failed pull, vanished
+		// prerequisite, failed build or up) is an error and exits non-zero.
+		res, err := update.Run(update.Options{Out: os.Stdout})
+		if err != nil {
+			// USER-FACING
+			fmt.Fprintf(os.Stderr, "bitbeard update: %v\n", err)
+			os.Exit(1)
+		}
+		if res.DoctorFailed {
+			// USER-FACING
+			fmt.Fprintln(os.Stdout, "bitbeard update is done, but the doctor reported problems above. Follow the fix hints, then rerun `bitbeard doctor` to confirm.")
+			os.Exit(1)
+		}
 	case "version", "--version":
 		// USER-FACING
 		fmt.Fprintf(os.Stdout, "bitbeard %s (commit %s)\n", version, commit)
