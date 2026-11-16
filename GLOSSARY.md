@@ -75,6 +75,12 @@ A login in the user store with a Role (Admin or User), optionally linked to a Di
 ID. Created by an Admin from the Admin Panel; one bootstrap Admin is seeded from env.
 _Avoid_: user (when naming the record), profile, login (as noun)
 
+**Registration Request**:
+A request from an anonymous visitor to create an Account (username, hashed password,
+optional note), pending Admin approval. Approving creates the Account; denying
+discards the request.
+_Avoid_: signup, invite, sign-up form
+
 **Role**:
 Either Admin (Admin Panel access, user management, subsystem control, file manager,
 ledger) or User (Webui only).
@@ -99,7 +105,8 @@ _Avoid_: user (in log entries), initiator
 
 **Audit Ledger**:
 The SQLite record of every consequential action: timestamp, Actor, action, details.
-Includes logins, searches, downloads, file operations, and all admin actions.
+Includes logins, registration requests, searches, downloads, file operations, and
+all admin actions.
 _Avoid_: logs, activity log (in prose when naming the store)
 
 ### Media & torrents

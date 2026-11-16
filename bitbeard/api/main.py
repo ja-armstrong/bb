@@ -6,9 +6,9 @@ control. It does not talk to qBittorrent or Jackett; media work belongs to the
 Download Manager.
 
 Authentication lives here at the boundary (ADR-0002): everything except
-``/health``, the ``/auth`` endpoints and the token-authed ``/internal/events``
-requires a valid Session cookie, and admin endpoints additionally require the
-Admin Role. Frontend-service callers (the Bot) take the same user endpoints
+``/health``, the ``/auth`` endpoints, the public ``/register`` submission
+endpoint and the token-authed ``/internal/events`` requires a valid Session
+cookie, and admin endpoints additionally require the Admin Role. Frontend-service callers (the Bot) take the same user endpoints
 with the shared SERVICE_TOKEN plus the acting Discord user's headers — the
 API resolves a linked Account for attribution, or records the Actor as
 ``discord:<name>`` when the Discord user is unlinked. User-facing media work
@@ -28,11 +28,21 @@ import logging
 import posixpath
 import secrets
 import sqlite3
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Literal
 
-from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Response
+from fastapi import (
+    Cookie,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+)
 from pydantic import BaseModel, Field
 
 from shared import db
@@ -65,6 +75,19 @@ DISCORD_NAME_HEADER = "X-Bitbeard-Discord-Name"
 #: Actor recorded for Lifecycle Events that carry no acting Account.
 MANAGER_ACTOR = "download-manager"
 
+#: Actor recorded for public Registration Requests: the submitter has no
+#: Account yet (and no Discord identity in this flow), so the ledger's
+#: Actor field says "anonymous" and the details carry the source IP and
+#: the requested username.
+ANONYMOUS_ACTOR = "anonymous"
+
+#: Per-IP throttle on the public Registration endpoint (ticket #29): one
+#: address may submit at most five requests per hour, sliding window,
+#: in-process. Simple and honest — a restart empties the buckets, and
+#: the numbers live right here next to the enforcement.
+REGISTRATION_LIMIT_PER_HOUR = 5
+REGISTRATION_WINDOW_SECONDS = 3600.0
+
 
 @dataclass(frozen=True)
 class Caller:
@@ -88,6 +111,19 @@ class Caller:
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class RegistrationRequest(BaseModel):
+    """An anonymous visitor's ask for an Account (ticket #29).
+
+    The password is hashed immediately with the same mechanism Accounts
+    use; the plaintext is never stored, logged or ledgared. The note is
+    optional prose for the Admin who will review the request.
+    """
+
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=8)
+    note: str | None = Field(default=None, max_length=2000)
 
 
 class PasswordChange(BaseModel):
@@ -205,6 +241,20 @@ class VpnConfigRequest(BaseModel):
     server: str | None = None
 
 
+def client_ip(request: Request) -> str:
+    """The submitting visitor's address, for the per-IP throttle and ledger.
+
+    The Webui's nginx proxy adds ``X-Forwarded-For``; its first entry is
+    the client the proxy saw, which is what "per IP" means here (the API
+    only ever sees direct sockets from inside the compose network).
+    Direct callers fall back to the socket address.
+    """
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 def format_size(size_bytes: int) -> str:
     """One human-readable size for quota messages."""
     size = float(size_bytes)
@@ -280,6 +330,10 @@ def create_app(
     app.state.sessions = SessionStore(
         config.db_path, ttl_hours=config.session_ttl_hours
     )
+    #: Per-IP submission buckets for the public ``/register`` endpoint:
+    #: ``{ip: [monotonic timestamps]}``, pruned on access. In-process on
+    #: purpose (see the constants above).
+    app.state.registration_buckets = {}
 
     def require_session(
         session_token: str | None = Cookie(default=None, alias=COOKIE_NAME),
@@ -825,6 +879,111 @@ def create_app(
             config.db_path, actor=account["username"], action="login", details={}
         )
         return {"role": account["role"]}
+
+    @app.post("/register")
+    async def register(request: RegistrationRequest, http: Request):
+        """File a Registration Request from an anonymous visitor (ticket #29).
+
+        The one unauthenticated write in the stack that is not the Bot's
+        hop: the landing page's form lands here. The password is hashed
+        through the same shared mechanism Accounts use the moment the
+        request is accepted; the plaintext is never stored, logged or
+        ledgared. The per-IP throttle runs before any store access so
+        flooding stops at the boundary, and every accepted submission is
+        audited with the anonymous Actor — the source IP rides in the
+        ledger details.
+        """
+        ip = client_ip(http)
+
+        # Throttle first, before the store: the attempt counts whether or
+        # not the submission is accepted, which is the point — no cheap
+        # probe of which usernames exist. The check-and-append never
+        # awaits, so the event loop serialises it; no lock is needed.
+        now = time.monotonic()
+        buckets = app.state.registration_buckets
+        window = [
+            stamp for stamp in buckets.get(ip, [])
+            if now - stamp < REGISTRATION_WINDOW_SECONDS
+        ]
+        if len(window) >= REGISTRATION_LIMIT_PER_HOUR:
+            buckets[ip] = window
+            raise HTTPException(
+                status_code=429,
+                # USER-FACING
+                detail=(
+                    "Too many registration requests have come from your "
+                    "address. Please wait a while and try again."
+                ),
+            )
+        buckets[ip] = [*window, now]
+
+        username = request.username.strip()
+        if not username:
+            # USER-FACING
+            raise HTTPException(status_code=400, detail="A username is required.")
+
+        note = request.note
+        if note is not None:
+            note = note.strip() or None
+
+        # Conflicts are named plainly at submission: an existing Account
+        # and a pending request are different situations for the visitor.
+        if db.find_account(config.db_path, username) is not None:
+            raise HTTPException(
+                status_code=409,
+                # USER-FACING
+                detail=(
+                    "An Account with that username already exists. "
+                    "Choose another username."
+                ),
+            )
+        if db.pending_registration_request(config.db_path, username) is not None:
+            raise HTTPException(
+                status_code=409,
+                # USER-FACING
+                detail=(
+                    "A request for that username is already pending. "
+                    "Choose another username."
+                ),
+            )
+
+        request_id = db.create_registration_request(
+            config.db_path,
+            username=username,
+            password=request.password,
+            note=note,
+            source_ip=ip,
+        )
+        if request_id is None:
+            # The store's UNIQUE constraint caught a race the pre-check
+            # missed; the situation reads as a pending request now.
+            raise HTTPException(
+                status_code=409,
+                # USER-FACING
+                detail=(
+                    "A request for that username is already pending. "
+                    "Choose another username."
+                ),
+            )
+
+        db.record_audit(
+            config.db_path,
+            actor=ANONYMOUS_ACTOR,
+            action="registration_requested",
+            details={"username": username, "source_ip": ip, "note": note},
+        )
+        logger.info(
+            "Registration Request '%s' filed from %s.", username, ip
+        )
+        return {
+            # USER-FACING
+            "message": (
+                "Request sent. An admin approves new accounts — there is "
+                "no notification, so check back later and try logging in "
+                "with the username and password you chose."
+            ),
+            "username": username,
+        }
 
     @app.get("/auth/me")
     async def me(caller: Caller = Depends(require_session)):

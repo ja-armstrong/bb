@@ -76,6 +76,15 @@ CREATE TABLE IF NOT EXISTS link_codes (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS registration_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    note TEXT,
+    source_ip TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS service_states (
     name TEXT PRIMARY KEY,
     disabled INTEGER NOT NULL DEFAULT 0
@@ -293,6 +302,59 @@ def revoke_sessions_for_account(
             )
         connection.commit()
     return cursor.rowcount
+
+
+# --- Registration Requests (public submissions) -----------------------------
+#
+# Pending asks from an anonymous visitor for an Account, submitted through
+# the Webui's public landing page. A row is pending state only: the Admin's
+# decision (approve creates the Account, deny discards) deletes it, and the
+# decision lives on in the Audit Ledger. The password is hashed here with
+# the same mechanism Accounts use — plaintext is never stored.
+
+def create_registration_request(
+    path: str,
+    *,
+    username: str,
+    password: str,
+    note: str | None,
+    source_ip: str,
+) -> int | None:
+    """Store a pending Registration Request; returns its id.
+
+    The password is hashed here, at the store boundary, through the same
+    ``shared.security`` mechanism Accounts use, so the plaintext the
+    visitor typed never lands in the store. A duplicate username returns
+    None: the UNIQUE constraint is the guard of record, mirroring
+    ``create_account`` so a race cannot double-file a request.
+    """
+    with closing(connect(path)) as connection:
+        try:
+            cursor = connection.execute(
+                """
+                INSERT INTO registration_requests
+                    (username, password_hash, note, source_ip, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (username, hash_password(password), note, source_ip, utc_now()),
+            )
+            connection.commit()
+        except sqlite3.IntegrityError:
+            return None
+    return cursor.lastrowid
+
+
+def pending_registration_request(path: str, username: str) -> sqlite3.Row | None:
+    """The pending Registration Request for a username, for conflict checks.
+
+    A pending request and an existing Account both block the same
+    username at submission; callers name which situation they hit.
+    """
+    with closing(connect(path)) as connection:
+        return connection.execute(
+            "SELECT * FROM registration_requests WHERE username = ?",
+            (username,),
+        ).fetchone()
 
 
 # --- Link Codes (Discord linking, ADR-0002) --------------------------------
