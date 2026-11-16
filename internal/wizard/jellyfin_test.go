@@ -174,7 +174,7 @@ func TestRunFreshJellyfinProvisioningCollected(t *testing.T) {
 	// Media server jellyfin, token, URL default, bot no. The fresh path
 	// offers the integration through the token prompt itself: an empty
 	// token answer skips it.
-	input := airvpnMandatory() + "jellyfin\njf-token\n\n\n"
+	input := airvpnMandatory() + "jellyfin\njf-token\n\n\n\n"
 	out, res, err := runWizard(t, stackDir, input, comp, nil, okJellyfinChecker)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
@@ -207,7 +207,7 @@ func TestRunFreshJellyfinProvisioningDeclined(t *testing.T) {
 	comp := &fakeCompose{psOut: healthyPSWith("jellyfin")}
 	untouched := &fakeJellyfin{resp: okJellyfin}
 	// Media server jellyfin, integration no (empty answer), bot no.
-	input := airvpnMandatory() + "jellyfin\n\n\n"
+	input := airvpnMandatory() + "jellyfin\n\n\n\n"
 	out, _, err := runWizard(t, stackDir, input, comp, nil, untouched)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
@@ -230,7 +230,7 @@ func TestRunRerunAddsJellyfinProvisioningLater(t *testing.T) {
 	comp := &fakeCompose{psOut: healthyPSWith("jellyfin")}
 	// No VPN switch, no media switch, integration yes, token, URL
 	// default, bot no.
-	out, res, err := runWizard(t, stackDir, "\n\ny\njf-token\n\n\n", comp, nil, okJellyfinChecker)
+	out, res, err := runWizard(t, stackDir, "\n\ny\njf-token\n\n\n\n", comp, nil, okJellyfinChecker)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -264,7 +264,7 @@ func TestRunRerunKeepsConfiguredJellyfinProvisioning(t *testing.T) {
 	comp := &fakeCompose{psOut: healthyPSWith("jellyfin")}
 	// No VPN switch, no media switch, no to the Bot — the integration
 	// must not be asked at all.
-	out, res, err := runWizard(t, stackDir, "\n\n\n", comp, nil, okJellyfinChecker)
+	out, res, err := runWizard(t, stackDir, "\n\n\n\n", comp, nil, okJellyfinChecker)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -289,7 +289,7 @@ func TestRunRerunProvisioningOfferFollowsTheMediaServer(t *testing.T) {
 	comp := &fakeCompose{psOut: healthyPSWith("jellyfin")}
 	// No VPN switch, media switch yes -> jellyfin, integration yes,
 	// token, URL default, bot no.
-	_, res, err := runWizard(t, stackDir, "\ny\n1\ny\njf-token\n\n\n", comp, nil, okJellyfinChecker)
+	_, res, err := runWizard(t, stackDir, "\ny\n1\ny\njf-token\n\n\n\n", comp, nil, okJellyfinChecker)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

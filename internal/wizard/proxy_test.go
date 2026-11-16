@@ -72,7 +72,7 @@ func proxyTestDeps(t *testing.T) (*proxy.Deps, *fakeProxyRunner) {
 }
 
 // runProxyWizard runs Run with fake proxy deps.
-func runProxyWizard(t *testing.T, stackDir, input string, comp *fakeCompose, discord DiscordChecker, deps *proxy.Deps) (string, Result, error) {
+func runProxyWizard(t *testing.T, stackDir, input string, comp *fakeCompose, discord DiscordChecker, jellyfin JellyfinChecker, deps *proxy.Deps) (string, Result, error) {
 	t.Helper()
 	var out strings.Builder
 	res, err := Run(Options{
@@ -82,6 +82,7 @@ func runProxyWizard(t *testing.T, stackDir, input string, comp *fakeCompose, dis
 		Compose:  comp,
 		Rand:     newRand(),
 		Discord:  discord,
+		Jellyfin: jellyfin,
 		Proxy:    deps,
 	})
 	return out.String(), res, err
@@ -93,8 +94,8 @@ func TestRunProxyDeclineKeepsLANOnly(t *testing.T) {
 	stackDir := makeStackDir(t)
 	comp := &fakeCompose{psOut: healthyPSWith("jellyfin")}
 	deps, ran := proxyTestDeps(t)
-	input := airvpnMandatory() + "jellyfin\n\n" + "n\n"
-	out, _, err := runProxyWizard(t, stackDir, input, comp, ok200, deps)
+	input := airvpnMandatory() + "jellyfin\n\n\n" + "n\n"
+	out, _, err := runProxyWizard(t, stackDir, input, comp, ok200, okJellyfinChecker, deps)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -123,10 +124,10 @@ func TestRunProxyYesEndToEnd(t *testing.T) {
 	stackDir := makeStackDir(t)
 	comp := &fakeCompose{psOut: healthyPSWith("jellyfin")}
 	deps, ran := proxyTestDeps(t)
-	// Media Server jellyfin, Bot skipped, reverse proxy yes, base domain,
-	// ACME email.
-	input := airvpnMandatory() + "jellyfin\n\n" + "y\nexample.com\nops@example.com\n"
-	out, _, err := runProxyWizard(t, stackDir, input, comp, ok200, deps)
+	// Media Server jellyfin, provisioning skipped (empty token), Bot
+	// skipped, reverse proxy yes, base domain, ACME email.
+	input := airvpnMandatory() + "jellyfin\n\n\n" + "y\nexample.com\nops@example.com\n"
+	out, _, err := runProxyWizard(t, stackDir, input, comp, ok200, okJellyfinChecker, deps)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -187,7 +188,7 @@ func TestRunProxyYesWithoutJellyfinWritesOneSite(t *testing.T) {
 	comp := &fakeCompose{psOut: healthyPSWith("plex")}
 	deps, _ := proxyTestDeps(t)
 	input := airvpnMandatory() + "plex\n\n" + "y\nexample.com\n\n"
-	out, _, err := runProxyWizard(t, stackDir, input, comp, nil, deps)
+	out, _, err := runProxyWizard(t, stackDir, input, comp, nil, nil, deps)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -219,7 +220,7 @@ func TestRunRerunProxyDeclinedShowsState(t *testing.T) {
 	deps, ran := proxyTestDeps(t)
 	// No VPN switch, no Media Server switch, no Bot enable, no
 	// reconfigure.
-	out, res, err := runProxyWizard(t, stackDir, "\n\n\n\n", comp, nil, deps)
+	out, res, err := runProxyWizard(t, stackDir, "\n\n\n\n\n", comp, nil, nil, deps)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -252,9 +253,9 @@ func TestRunRerunProxyReconfigure(t *testing.T) {
 	})
 	comp := &fakeCompose{psOut: healthyPSWith("jellyfin")}
 	deps, ran := proxyTestDeps(t)
-	// No VPN switch, no Media Server switch, no Bot enable, reconfigure
-	// yes, new base domain, no email.
-	out, res, err := runProxyWizard(t, stackDir, "\n\n\ny\nnew.example.com\n\n", comp, nil, deps)
+	// No VPN switch, no Media Server switch, no provisioning (empty
+	// token), no Bot enable, reconfigure yes, new base domain, no email.
+	out, res, err := runProxyWizard(t, stackDir, "\n\n\n\ny\nnew.example.com\n\n", comp, nil, nil, deps)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}

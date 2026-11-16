@@ -487,7 +487,7 @@ func TestRunRerunPromptsOnlyMissing(t *testing.T) {
 	// Keep Media Server (no), enable the Bot (yes), token, channel. The
 	// leading answer declines the VPN provider switch; the trailing one
 	// declines the reverse-proxy offer.
-	out, res, err := runWizard(t, stackDir, "\n\ny\ntok-rerun\n123456789012345678\n\n", comp, ok200)
+	out, res, err := runWizard(t, stackDir, "\n\ny\ntok-rerun\n123456789012345678\n\n\n", comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
@@ -521,7 +521,7 @@ func TestRunRerunMissingBotTokenOnly(t *testing.T) {
 	comp := &fakeCompose{psOut: healthyPSWith("bot")}
 	// No VPN switch, no media switch, then the token; the trailing answer
 	// declines the reverse-proxy offer.
-	out, res, err := runWizard(t, stackDir, "\n\ntok-late\n\n", comp, ok200)
+	out, res, err := runWizard(t, stackDir, "\n\ntok-late\n\n\n", comp, ok200)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
