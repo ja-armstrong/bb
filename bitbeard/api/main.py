@@ -61,6 +61,7 @@ from .docker_control import (
 from .jellyfin import (
     JellyfinClient,
     JellyfinProvisioningError,
+    JellyfinUserMissingError,
     generate_password,
 )
 from .manager_proxy import ManagerProxy, ManagerUnavailable, Transport
@@ -134,6 +135,20 @@ class RegistrationRequest(BaseModel):
 
 class PasswordChange(BaseModel):
     current_password: str
+    new_password: str = Field(min_length=8)
+
+
+class JellyfinPasswordSet(BaseModel):
+    """The password a logged-in user sets on their own Jellyfin user
+    (ticket #32).
+
+    There is no current-password field: the call goes through the
+    Jellyfin admin API key, which may set any user's password outright —
+    so the random password generated at provisioning is overwritten
+    without ever being involved. The Webui's confirm field is matched
+    client-side, like the registration form's.
+    """
+
     new_password: str = Field(min_length=8)
 
 
@@ -1056,8 +1071,93 @@ def create_app(
 
     @app.get("/auth/me")
     async def me(caller: Caller = Depends(require_session)):
-        """Echo the calling Account, so Frontends can restore their view."""
-        return {"username": caller.username, "role": caller.role}
+        """Echo the calling Account, so Frontends can restore their view.
+
+        ``jellyfin_password_available`` is the capability flag the Webui
+        reads (ticket #32): the self-service password page shows only
+        when the Jellyfin integration is on and the Media Server is
+        Jellyfin. It is a single boolean — the page has nothing honest
+        to show for the finer cases, and the endpoint itself names the
+        reason on a real attempt.
+        """
+        return {
+            "username": caller.username,
+            "role": caller.role,
+            "jellyfin_password_available": (
+                config.jellyfin_enabled and media_server() == "jellyfin"
+            ),
+        }
+
+    @app.post("/me/jellyfin-password")
+    async def set_jellyfin_password(
+        request: JellyfinPasswordSet, caller: Caller = Depends(require_session)
+    ):
+        """Set the calling Account's own Jellyfin password (ticket #32).
+
+        The password lands on the Jellyfin user matching the caller's
+        Bitbeard username, set through the admin API key — which needs
+        no current password, so the random one generated at provisioning
+        is overwritten without ever being asked for or shown. Requires a
+        Session (any Role): an unauthenticated caller learns nothing
+        here, and a logged-in one is told plainly why a request was
+        refused — the integration being off, the Media Server not being
+        Jellyfin, or no matching Jellyfin user existing. Audited without
+        the password, like every password change.
+        """
+        if not config.jellyfin_enabled:
+            raise HTTPException(
+                status_code=403,
+                # USER-FACING
+                detail=(
+                    "The Jellyfin integration is not set up on this "
+                    "server, so there is no Jellyfin password to set."
+                ),
+            )
+        if media_server() != "jellyfin":
+            raise HTTPException(
+                status_code=403,
+                # USER-FACING
+                detail=(
+                    "This stack's Media Server is not Jellyfin, so there "
+                    "is no Jellyfin password to set."
+                ),
+            )
+        try:
+            jellyfin_client_for().set_password(
+                caller.username, request.new_password
+            )
+        except JellyfinUserMissingError:
+            raise HTTPException(
+                status_code=404,
+                # USER-FACING
+                detail=(
+                    f"No Jellyfin user named '{caller.username}' exists "
+                    "yet. Ask the Admin to create one."
+                ),
+            )
+        except JellyfinProvisioningError as exc:
+            logger.warning(
+                "Jellyfin password set for '%s' failed: %s",
+                caller.username, exc,
+            )
+            raise HTTPException(
+                status_code=502,
+                # USER-FACING
+                detail="Jellyfin could not be reached. Try again in a bit.",
+            )
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="jellyfin_password_set",
+            details={},
+        )
+        logger.info(
+            "Jellyfin password set by '%s' from the Webui.", caller.username
+        )
+        return {
+            # USER-FACING
+            "message": "Password set — log into Jellyfin with it.",
+        }
 
     @app.get("/me/quota")
     async def me_quota(caller: Caller = Depends(require_session)):

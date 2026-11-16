@@ -139,6 +139,28 @@
                 <div id="link-message" aria-live="polite"></div>
             </form>
         </div>
+        <div class="section" id="jellyfin-password-section" hidden>
+            <!-- USER-FACING -->
+            <h2>Set your Jellyfin password</h2>
+            <p>
+                <!-- USER-FACING -->
+                Your Jellyfin login is your Bitbeard username and this
+                password. The password generated when your account was
+                approved is never shown — whatever you set here replaces
+                it. You can come back and set a new one anytime.
+            </p>
+            <form id="jellyfin-password-form" autocomplete="off">
+                <!-- USER-FACING -->
+                <label for="jf-new-password">New Jellyfin password:</label>
+                <input type="password" id="jf-new-password" minlength="8" required autocomplete="new-password">
+                <!-- USER-FACING -->
+                <label for="jf-confirm-password">Confirm password:</label>
+                <input type="password" id="jf-confirm-password" minlength="8" required autocomplete="new-password">
+                <!-- USER-FACING -->
+                <button type="submit">Set password</button>
+                <div id="jf-password-message" aria-live="polite"></div>
+            </form>
+        </div>
         </div>
     </main>
     <script>
@@ -167,6 +189,12 @@
                 document.getElementById('userbar-info').textContent =
                     <!-- USER-FACING -->
                     `Logged in as ${me.username} (${me.role})`;
+                // The self-service Jellyfin password page shows only when
+                // the capability flag says the integration is on and the
+                // Media Server is Jellyfin (ticket #32); the endpoint
+                // names the reason otherwise.
+                document.getElementById('jellyfin-password-section').hidden =
+                    !me.jellyfin_password_available;
                 loginView.hidden = true;
                 appView.hidden = false;
                 loadQuota();
@@ -272,6 +300,46 @@
                 } else {
                     <!-- USER-FACING -->
                     msgDiv.innerHTML = `<span class="error">${data.detail || "Failed to change password"}</span>`;
+                }
+            } catch (err) {
+                msgDiv.innerHTML = `<span class="error">Error: ${err}</span>`;
+            }
+        });
+
+        // --- Set your Jellyfin password -----------------------------------
+        // Sets the password on the Jellyfin user matching this Account's
+        // username, through the API's admin key: the generated password
+        // from provisioning is overwritten without ever being shown.
+        // The page is only visible when the /auth/me capability flag
+        // says it can work; a refused attempt still gets its plain
+        // message right here.
+        document.getElementById('jellyfin-password-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const msgDiv = document.getElementById('jf-password-message');
+            const password = document.getElementById('jf-new-password').value;
+            const confirm = document.getElementById('jf-confirm-password').value;
+            if (password !== confirm) {
+                // USER-FACING
+                msgDiv.innerHTML = `<span class="error">The passwords do not match.</span>`;
+                return;
+            }
+            // USER-FACING
+            msgDiv.textContent = "Setting...";
+            try {
+                const resp = await fetch(`${API_BASE}/me/jellyfin-password`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ new_password: password })
+                });
+                if (handleAuthFailure(resp)) return;
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok) {
+                    // USER-FACING
+                    msgDiv.innerHTML = `<span class="success">${data.message}</span>`;
+                    document.getElementById('jellyfin-password-form').reset();
+                } else {
+                    // USER-FACING
+                    msgDiv.innerHTML = `<span class="error">${data.detail || "Failed to set the Jellyfin password"}</span>`;
                 }
             } catch (err) {
                 msgDiv.innerHTML = `<span class="error">Error: ${err}</span>`;

@@ -276,10 +276,12 @@ def test_user_role_is_refused_on_admin_endpoints(tmp_path):
         _login(client, "deckhand", "ropes123")
 
         assert client.get("/admin/ping").status_code == 403
-        # The Role still allows the Account's own endpoints.
+        # The Role still allows the Account's own endpoints. The Jellyfin
+        # capability flag rides along (ticket #32): off by default.
         assert client.get("/auth/me").json() == {
             "username": "deckhand",
             "role": "user",
+            "jellyfin_password_available": False,
         }
 
 

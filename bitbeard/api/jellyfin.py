@@ -7,7 +7,10 @@ wizard, ``.env.example`` and the compose api service carry them; the api's
 Jellyfin is provisioning a user on registration approval — the same
 username as the approved Account, with a random password generated here
 and never displayed, stored or logged. The user self-serves a new one
-later (the next ticket's flow).
+later from the Webui (ticket #32): ``JellyfinClient.set_password``
+overwrites the generated password on the matching Jellyfin user, through
+the same admin API key — which needs no current password, so the random
+one is involved nowhere.
 
 ``transport`` is the seam for tests: a callable performing one HTTP
 request and returning a ``(status, payload)`` tuple, mirroring the shape
@@ -28,6 +31,16 @@ class JellyfinProvisioningError(Exception):
 
     The reason never contains the generated password: it is built from
     HTTP statuses and the requested username only.
+    """
+
+
+class JellyfinUserMissingError(JellyfinProvisioningError):
+    """No Jellyfin user matches the requested username.
+
+    A subclass, not a message-parsing convention: the self-service
+    password endpoint (ticket #32) refuses differently on this case —
+    the caller is logged in, so naming the absence is fine — while every
+    other failure stays one unreachable/refused hop.
     """
 
 
@@ -76,6 +89,12 @@ class JellyfinClient:
     - ``POST /Users/{Id}/Password`` with ``{"Id": ..., "NewPw": ...}`` —
       sets the fresh user's password (a just-created user has none, so no
       current password rides along).
+
+    ``set_password`` (ticket #32) reuses the lookup and the same
+    password endpoint: the admin key may set any user's password without
+    presenting the current one, which is exactly what the self-service
+    flow leans on — the generated provisioning password is overwritten
+    and never asked for or revealed.
     """
 
     def __init__(self, base_url: str, api_token: str, transport=None):
@@ -139,6 +158,62 @@ class JellyfinClient:
             f"{self._base_url}/Users/{user_id}/Password",
             headers=self._headers(),
             json={"Id": user_id, "CurrentPw": "", "NewPw": password},
+        )
+        if status == 401:
+            raise JellyfinProvisioningError(
+                "Jellyfin rejected the API token (401 unauthorized)"
+            )
+        if status not in (200, 204):
+            raise JellyfinProvisioningError(
+                f"Jellyfin refused to set the user's password (HTTP {status})"
+            )
+
+    def set_password(self, username: str, password: str) -> None:
+        """Set the password of the Jellyfin user matching ``username``.
+
+        The self-service half of provisioning (ticket #32): the caller is
+        the Account owner, so the user is looked up by the same
+        case-insensitive name match ``create_user`` checks before
+        creating. The admin key needs no current password, so the
+        generated one from provisioning is simply overwritten — it was
+        never shown to anyone and is involved nowhere here.
+
+        Raises ``JellyfinUserMissingError`` when no Jellyfin user
+        matches (the endpoint turns that into its own plain refusal),
+        ``JellyfinProvisioningError`` for every other failure the caller
+        is meant to survive: an unreachable server, a rejected token, or
+        Jellyfin refusing the set.
+        """
+        status, users = self._transport(
+            "GET", f"{self._base_url}/Users", headers=self._headers(), json=None
+        )
+        if status == 401:
+            raise JellyfinProvisioningError(
+                "Jellyfin rejected the API token (401 unauthorized)"
+            )
+        if status != 200:
+            raise JellyfinProvisioningError(
+                f"Jellyfin answered {status} instead of 200 for its user list"
+            )
+        user_id = None
+        if isinstance(users, list):
+            for user in users:
+                if (
+                    isinstance(user, dict)
+                    and str(user.get("Name", "")).lower() == username.lower()
+                ):
+                    user_id = user.get("Id")
+                    break
+        if not user_id:
+            raise JellyfinUserMissingError(
+                f"no Jellyfin user named '{username}' exists"
+            )
+
+        status, _ = self._transport(
+            "POST",
+            f"{self._base_url}/Users/{user_id}/Password",
+            headers=self._headers(),
+            json={"Id": user_id, "NewPw": password},
         )
         if status == 401:
             raise JellyfinProvisioningError(
