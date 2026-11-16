@@ -292,6 +292,7 @@ def create_app(
         clock) before the first request.
         """
         if not session_token:
+            # USER-FACING
             raise HTTPException(status_code=401, detail="Not authenticated.")
         session = app.state.sessions.resolve(session_token)
         if session is None:
@@ -332,6 +333,7 @@ def create_app(
             if not discord_id:
                 raise HTTPException(
                     status_code=401,
+                    # USER-FACING
                     detail="The acting Discord user must ride along.",
                 )
             # Link Code verification (ADR-0002): a pending code claiming
@@ -380,6 +382,7 @@ def create_app(
     def require_admin(caller: Caller = Depends(require_session)) -> Caller:
         """Refuse non-Admin Accounts at the boundary."""
         if caller.role != "admin":
+            # USER-FACING
             raise HTTPException(status_code=403, detail="Admin Role required.")
         return caller
 
@@ -406,6 +409,7 @@ def create_app(
         except DockerUnavailable as exc:
             logger.warning("Docker unavailable: %s", exc)
             raise HTTPException(
+                # USER-FACING
                 status_code=502, detail="Docker is unavailable."
             )
 
@@ -432,6 +436,7 @@ def create_app(
         except ManagerUnavailable as exc:
             logger.warning("Download Manager unavailable: %s", exc)
             raise HTTPException(
+                # USER-FACING
                 status_code=502, detail="Download Manager unavailable."
             )
         if response.status_code >= 400:
@@ -477,6 +482,7 @@ def create_app(
         """
         row = db.get_download(config.db_path, download_id)
         if row is None:
+            # USER-FACING
             raise HTTPException(status_code=404, detail="No such Download.")
         if caller.account_id is not None:
             owner_mismatch = row["account"] != caller.account_id
@@ -485,6 +491,7 @@ def create_app(
         if owner_mismatch:
             raise HTTPException(
                 status_code=403,
+                # USER-FACING
                 detail="This Download belongs to another Actor.",
             )
         return row
@@ -519,6 +526,7 @@ def create_app(
                 detail = response.payload.get("detail")
             raise HTTPException(
                 status_code=response.status_code,
+                # USER-FACING
                 detail=detail or "Download Manager refused the request.",
             )
         return response.payload
@@ -550,6 +558,7 @@ def create_app(
             raise HTTPException(
                 status_code=403,
                 detail=(
+                    # USER-FACING
                     f"Quota exceeded: this Download would put you at "
                     f"{format_size(projected)} of your {format_size(cap)} "
                     "limit. Delete something first."
@@ -790,6 +799,7 @@ def create_app(
                 details={"reason": "invalid credentials"},
             )
             raise HTTPException(
+                # USER-FACING
                 status_code=401, detail="Invalid username or password."
             )
         if account["disabled"]:
@@ -799,6 +809,7 @@ def create_app(
                 action="login_failed",
                 details={"reason": "account disabled"},
             )
+            # USER-FACING
             raise HTTPException(status_code=403, detail="Account is disabled.")
 
         session = app.state.sessions.issue(account["id"])
@@ -838,6 +849,7 @@ def create_app(
         """Revoke the calling Session server-side and clear the cookie."""
         app.state.sessions.revoke(caller.token)
         response.delete_cookie(COOKIE_NAME, path="/")
+        # USER-FACING
         return {"message": "Logged out."}
 
     @app.post("/auth/password")
@@ -855,6 +867,7 @@ def create_app(
             raise HTTPException(status_code=401, detail="Not authenticated.")
         if not verify_password(request.current_password, account["password_hash"]):
             raise HTTPException(
+                # USER-FACING
                 status_code=400, detail="Current password is incorrect."
             )
         db.update_password(config.db_path, caller.account_id, request.new_password)
@@ -867,6 +880,7 @@ def create_app(
             action="password_changed",
             details={},
         )
+        # USER-FACING
         return {"message": "Password updated."}
 
     @app.post("/link/code")
@@ -885,12 +899,14 @@ def create_app(
         discord_id = request.discord_id.strip()
         if not discord_id:
             raise HTTPException(
+                # USER-FACING
                 status_code=400, detail="A Discord ID is required."
             )
         held = db.find_account_by_discord(config.db_path, discord_id)
         if held is not None and held["id"] != caller.account_id:
             raise HTTPException(
                 status_code=400,
+                # USER-FACING
                 detail="That Discord ID is already linked to another Account.",
             )
         code = db.create_link_code(
@@ -907,6 +923,7 @@ def create_app(
     @app.get("/admin/ping")
     async def admin_ping(caller: Caller = Depends(require_admin)):
         """Admin-role gate proof; real admin endpoints come with the panel."""
+        # USER-FACING
         return {"message": "pong", "admin": caller.username}
 
     @app.get("/admin/users")
@@ -950,9 +967,11 @@ def create_app(
         """
         username = request.username.strip()
         if not username:
+            # USER-FACING
             raise HTTPException(status_code=400, detail="A username is required.")
         if db.find_account(config.db_path, username) is not None:
             raise HTTPException(
+                # USER-FACING
                 status_code=400, detail="That username is already taken."
             )
         account_id = db.create_account(
@@ -1014,6 +1033,7 @@ def create_app(
             },
         )
         return {
+            # USER-FACING
             "message": f"Password reset for {account['username']}.",
             "sessions_revoked": revoked,
         }
@@ -1036,6 +1056,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="No such Account.")
         if account["disabled"]:
             raise HTTPException(
+                # USER-FACING
                 status_code=400, detail="Account is already disabled."
             )
         if (
@@ -1044,6 +1065,7 @@ def create_app(
         ):
             raise HTTPException(
                 status_code=400,
+                # USER-FACING
                 detail="Refusing to disable the last enabled Admin.",
             )
         db.set_disabled(config.db_path, account_id, True)
@@ -1074,6 +1096,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="No such Account.")
         if not account["disabled"]:
             raise HTTPException(
+                # USER-FACING
                 status_code=400, detail="Account is not disabled."
             )
         db.set_disabled(config.db_path, account_id, False)
@@ -1213,6 +1236,7 @@ def create_app(
         both gracefully when the container is not there to act on.
         """
         if name not in subsystem_ports():
+            # USER-FACING
             raise HTTPException(status_code=404, detail="No such Subsystem.")
 
         if action in CONTAINER_ACTIONS:
@@ -1222,6 +1246,7 @@ def create_app(
             if name not in OPTIONAL_SUBSYSTEMS:
                 raise HTTPException(
                     status_code=400,
+                    # USER-FACING
                     detail="Only the Optional Subsystem can be disabled.",
                 )
             state = docker_or_502(lambda: control.act(name, "stop"))
@@ -1237,6 +1262,7 @@ def create_app(
             db.set_service_disabled(config.db_path, name, False)
             audited = "subsystem_enabled"
         else:
+            # USER-FACING
             raise HTTPException(status_code=400, detail="Unknown action.")
 
         db.record_audit(
@@ -1353,6 +1379,7 @@ def create_app(
         cleaned = value.strip()
         if not cleaned:
             raise HTTPException(
+                # USER-FACING
                 status_code=400, detail=f"A {label} was required."
             )
         return cleaned
@@ -1404,6 +1431,7 @@ def create_app(
         )
         logger.info("VPN settings changed by %s.", caller.username)
         return {
+            # USER-FACING
             "message": "VPN settings saved. Restart gluetun to apply them.",
             **vpn_view(settings),
         }

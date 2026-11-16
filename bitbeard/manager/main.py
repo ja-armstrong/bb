@@ -135,6 +135,7 @@ def validate_download_name(name: str) -> str:
     ):
         raise HTTPException(
             status_code=400,
+            # USER-FACING
             detail="That name cannot be used for a Download.",
         )
     return cleaned
@@ -236,6 +237,7 @@ def create_app(
             record=record,
         )
         return {
+            # USER-FACING
             "message": "Download started successfully",
             "download_id": record.id,
         }
@@ -269,9 +271,11 @@ def create_app(
         """
         row = db.get_download(config.db_path, download_id)
         if row is None:
+            # USER-FACING
             raise HTTPException(status_code=404, detail="No such Download.")
         if account_id is None and discord_name is None:
             raise HTTPException(
+                # USER-FACING
                 status_code=403, detail="No trusted Actor on the request."
             )
         if account_id is not None:
@@ -281,6 +285,7 @@ def create_app(
         if owner_mismatch:
             raise HTTPException(
                 status_code=403,
+                # USER-FACING
                 detail="This Download belongs to another Actor.",
             )
         return row
@@ -376,6 +381,7 @@ def create_app(
             raise HTTPException(
                 status_code=400,
                 detail=(
+                    # USER-FACING
                     f"Unknown Category '{request.category}'. Choose one of: "
                     f"{', '.join(CATEGORIES)}."
                 ),
@@ -419,6 +425,7 @@ def create_app(
         if not cancelled:
             raise HTTPException(
                 status_code=409,
+                # USER-FACING
                 detail="That Download is not In-flight anymore.",
             )
         app.state.quota_ledger.cancel(download_id)

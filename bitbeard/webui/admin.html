@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <!-- USER-FACING -->
     <title>Bitbeard Admin</title>
     <link href="https://fonts.googleapis.com/css?family=Pirata+One|Roboto:400,700&display=swap" rel="stylesheet">
     <style>
@@ -236,19 +237,25 @@
 </head>
 <body>
     <header>
+        <!-- USER-FACING -->
         <div class="logo">Bitbeard</div>
+        <!-- USER-FACING -->
         <div class="subtitle">Admin Panel</div>
     </header>
     <main>
         <!-- Shown whenever the API refuses the Session (not logged in /
              expired) or the caller holds a non-Admin Role. -->
         <div class="section login-card" id="login-view">
+            <!-- USER-FACING -->
             <h2>Log in</h2>
             <form id="login-form" autocomplete="off">
+                <!-- USER-FACING -->
                 <label for="login-username">Username:</label>
                 <input type="text" id="login-username" required autocomplete="username">
+                <!-- USER-FACING -->
                 <label for="login-password">Password:</label>
                 <input type="password" id="login-password" required autocomplete="current-password">
+                <!-- USER-FACING -->
                 <button type="submit">Log in</button>
                 <div id="login-message"></div>
             </form>
@@ -257,91 +264,124 @@
         <div id="app-view" class="hidden">
             <div class="userbar">
                 <span id="userbar-info"></span>
+                <!-- USER-FACING -->
                 <button id="logout-btn">Log out</button>
             </div>
 
             <!-- One button per Admin Panel page. -->
             <nav id="nav">
+                <!-- USER-FACING -->
                 <button data-page="audit" class="active">Audit Ledger</button>
+                <!-- USER-FACING -->
                 <button data-page="users">Users</button>
+                <!-- USER-FACING -->
                 <button data-page="subsystems">Subsystems</button>
+                <!-- USER-FACING -->
                 <button data-page="files">Files</button>
+                <!-- USER-FACING -->
                 <button data-page="vpn">VPN</button>
             </nav>
 
             <div class="section page" id="page-audit">
+                <!-- USER-FACING -->
                 <h2>Audit Ledger</h2>
                 <form id="audit-filters" autocomplete="off">
                     <div class="filters">
                         <div>
+                            <!-- USER-FACING -->
                             <label for="filter-actor">Actor:</label>
+                            <!-- USER-FACING -->
                             <input type="text" id="filter-actor" placeholder="e.g. admin or discord:name">
                         </div>
                         <div>
+                            <!-- USER-FACING -->
                             <label for="filter-action">Action:</label>
+                            <!-- USER-FACING -->
                             <input type="text" id="filter-action" placeholder="e.g. search, login">
                         </div>
                         <div>
+                            <!-- USER-FACING -->
                             <label for="filter-start">From:</label>
                             <input type="date" id="filter-start">
                         </div>
                         <div>
+                            <!-- USER-FACING -->
                             <label for="filter-end">To:</label>
                             <input type="date" id="filter-end">
                         </div>
+                        <!-- USER-FACING -->
                         <button type="submit">Apply filters</button>
+                        <!-- USER-FACING -->
                         <button type="button" id="clear-filters">Clear</button>
                     </div>
                 </form>
                 <table>
                     <thead>
                         <tr>
+                            <!-- USER-FACING -->
                             <th>Timestamp</th>
+                            <!-- USER-FACING -->
                             <th>Actor</th>
+                            <!-- USER-FACING -->
                             <th>Action</th>
+                            <!-- USER-FACING -->
                             <th>Details</th>
                         </tr>
                     </thead>
                     <tbody id="audit-rows"></tbody>
                 </table>
                 <div class="pagination">
+                    <!-- USER-FACING -->
                     <button id="prev-page">&lt; Prev</button>
                     <span id="page-info"></span>
+                    <!-- USER-FACING -->
                     <button id="next-page">Next &gt;</button>
                 </div>
             </div>
 
             <div class="section page hidden" id="page-users">
+                <!-- USER-FACING -->
                 <h2>Accounts</h2>
                 <form id="user-create-form" autocomplete="off">
                     <div class="filters">
                         <div>
+                            <!-- USER-FACING -->
                             <label for="new-username">Username:</label>
                             <input type="text" id="new-username" autocomplete="off">
                         </div>
                         <div>
+                            <!-- USER-FACING -->
                             <label for="new-password">Password:</label>
                             <input type="password" id="new-password" autocomplete="new-password">
                         </div>
                         <div>
+                            <!-- USER-FACING -->
                             <label for="new-role">Role:</label>
                             <select id="new-role">
+                                <!-- USER-FACING -->
                                 <option value="user">User</option>
+                                <!-- USER-FACING -->
                                 <option value="admin">Admin</option>
                             </select>
                         </div>
                         <div>
+                            <!-- USER-FACING -->
                             <label for="new-quota-mode">Storage Quota:</label>
                             <select id="new-quota-mode">
+                                <!-- USER-FACING -->
                                 <option value="default">Global default</option>
+                                <!-- USER-FACING -->
                                 <option value="override">Override</option>
+                                <!-- USER-FACING -->
                                 <option value="unlimited">Unlimited</option>
                             </select>
                         </div>
                         <div class="hidden" id="new-quota-wrap">
+                            <!-- USER-FACING -->
                             <label for="new-quota-gb">Override (GB):</label>
                             <input type="number" id="new-quota-gb" min="0" step="0.001">
                         </div>
+                        <!-- USER-FACING -->
                         <button type="submit">Create Account</button>
                     </div>
                     <div id="create-message"></div>
@@ -349,11 +389,17 @@
                 <table>
                     <thead>
                         <tr>
+                            <!-- USER-FACING -->
                             <th>Username</th>
+                            <!-- USER-FACING -->
                             <th>Role</th>
+                            <!-- USER-FACING -->
                             <th>Status</th>
+                            <!-- USER-FACING -->
                             <th>Discord</th>
+                            <!-- USER-FACING -->
                             <th>Storage Quota</th>
+                            <!-- USER-FACING -->
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -363,13 +409,18 @@
             </div>
 
             <div class="section page hidden" id="page-subsystems">
+                <!-- USER-FACING -->
                 <h2>Subsystems</h2>
                 <table>
                     <thead>
                         <tr>
+                            <!-- USER-FACING -->
                             <th>Subsystem</th>
+                            <!-- USER-FACING -->
                             <th>State</th>
+                            <!-- USER-FACING -->
                             <th>Reachability</th>
+                            <!-- USER-FACING -->
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -379,20 +430,27 @@
             </div>
 
             <div class="section page hidden" id="page-files">
+                <!-- USER-FACING -->
                 <h2>Media Root Files</h2>
                 <div class="filters">
                     <div>
+                        <!-- USER-FACING -->
                         <label for="files-path">Current path:</label>
                         <span id="files-path"></span>
                     </div>
+                    <!-- USER-FACING -->
                     <button type="button" id="files-up">Up one level</button>
                 </div>
                 <table>
                     <thead>
                         <tr>
+                            <!-- USER-FACING -->
                             <th>Name</th>
+                            <!-- USER-FACING -->
                             <th>Type</th>
+                            <!-- USER-FACING -->
                             <th>Size</th>
+                            <!-- USER-FACING -->
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -402,38 +460,50 @@
             </div>
 
             <div class="section page hidden" id="page-vpn">
+                <!-- USER-FACING -->
                 <h2>VPN (gluetun)</h2>
                 <form id="vpn-config-form" autocomplete="off">
                     <div class="filters">
                         <div>
+                            <!-- USER-FACING -->
                             <label for="vpn-provider">Provider:</label>
+                            <!-- USER-FACING -->
                             <input type="text" id="vpn-provider" placeholder="e.g. nordvpn">
                         </div>
                         <div>
+                            <!-- USER-FACING -->
                             <label for="vpn-user">OpenVPN user:</label>
                             <input type="text" id="vpn-user" autocomplete="off">
                         </div>
                         <div>
+                            <!-- USER-FACING -->
                             <label for="vpn-password">OpenVPN password:</label>
+                            <!-- USER-FACING -->
                             <input type="password" id="vpn-password" autocomplete="new-password" placeholder="(unchanged)">
                         </div>
                         <div>
+                            <!-- USER-FACING -->
                             <label for="vpn-server">Server:</label>
+                            <!-- USER-FACING -->
                             <input type="text" id="vpn-server" placeholder="e.g. us9723.nordvpn.com">
                         </div>
                     </div>
+                    <!-- USER-FACING -->
                     <button type="submit">Save &amp; apply (restarts gluetun)</button>
                     <div id="vpn-config-message"></div>
                 </form>
                 <table>
                     <thead>
                         <tr>
+                            <!-- USER-FACING -->
                             <th>Setting</th>
+                            <!-- USER-FACING -->
                             <th>Value</th>
                         </tr>
                     </thead>
                     <tbody id="vpn-status-rows"></tbody>
                 </table>
+                <!-- USER-FACING -->
                 <button type="button" id="vpn-test">Test exit IP</button>
                 <div id="vpn-test-message"></div>
             </div>
@@ -464,11 +534,13 @@
                     // The Role is enforced by the API; the panel only
                     // explains a refusal it receives.
                     document.getElementById('login-message').innerHTML =
+                        <!-- USER-FACING -->
                         `<span class="error">Admin Role required.</span>`;
                     showLogin();
                     return;
                 }
                 document.getElementById('userbar-info').textContent =
+                    <!-- USER-FACING -->
                     `Logged in as ${me.username} (${me.role})`;
                 loginView.classList.add('hidden');
                 appView.classList.remove('hidden');
@@ -496,6 +568,7 @@
         document.getElementById('login-form').addEventListener('submit', async function(e) {
             e.preventDefault();
             const msgDiv = document.getElementById('login-message');
+            <!-- USER-FACING -->
             msgDiv.textContent = "Logging in...";
             try {
                 const resp = await fetch(`${API_BASE}/auth/login`, {
@@ -511,9 +584,11 @@
                     showApp();
                 } else {
                     const data = await resp.json().catch(() => ({}));
+                    <!-- USER-FACING -->
                     msgDiv.innerHTML = `<span class="error">${esc(data.detail || "Login failed")}</span>`;
                 }
             } catch (err) {
+                <!-- USER-FACING -->
                 msgDiv.innerHTML = `<span class="error">Error: ${err}</span>`;
             }
         });
@@ -552,6 +627,7 @@
                 if (handleAuthFailure(resp)) return;
                 const data = await resp.json();
                 if (!resp.ok) {
+                    <!-- USER-FACING -->
                     rows.innerHTML = `<tr><td colspan="4"><span class="error">${esc(data.detail || "Failed to load the ledger")}</span></td></tr>`;
                     return;
                 }
@@ -566,6 +642,7 @@
                 `).join('');
                 renderPagination();
             } catch (err) {
+                <!-- USER-FACING -->
                 rows.innerHTML = `<tr><td colspan="4"><span class="error">Error: ${esc(err)}</span></td></tr>`;
             }
         }
@@ -577,10 +654,12 @@
             prevBtn.disabled = offset <= 0;
             nextBtn.disabled = offset + PAGE_SIZE >= total;
             if (total === 0) {
+                <!-- USER-FACING -->
                 pageInfo.textContent = "No entries match.";
             } else {
                 const first = offset + 1;
                 const last = Math.min(offset + PAGE_SIZE, total);
+                <!-- USER-FACING -->
                 pageInfo.textContent = `Entries ${first}–${last} of ${total}`;
             }
         }
@@ -616,6 +695,7 @@
 
         // --- Subsystems page -------------------------------------------
         function describeState(svc) {
+            <!-- USER-FACING -->
             if (svc.disabled) return `<span class="badge-disabled">Disabled</span>`;
             const label = esc(svc.state);
             if (svc.state === 'running') return `<span class="badge-enabled">${label}</span>`;
@@ -625,19 +705,25 @@
 
         function describeProbe(svc) {
             if (svc.port === null || svc.probe === null) return "—";
+            <!-- USER-FACING -->
             const what = `Port ${svc.port}`;
             return svc.probe
+                <!-- USER-FACING -->
                 ? `<span class="badge-enabled">${what} open</span>`
+                <!-- USER-FACING -->
                 : `<span class="badge-disabled">${what} closed</span>`;
         }
 
         function renderServiceRow(svc) {
             let actions = ['restart', 'stop', 'start'].map(action =>
+                <!-- USER-FACING -->
                 `<button data-action="${action}" data-name="${esc(svc.name)}">${action[0].toUpperCase() + action.slice(1)}</button>`
             ).join('');
             if (svc.optional) {
                 actions += svc.disabled
+                    <!-- USER-FACING -->
                     ? `<button data-action="enable" data-name="${esc(svc.name)}">Enable</button>`
+                    <!-- USER-FACING -->
                     : `<button data-action="disable" data-name="${esc(svc.name)}">Disable</button>`;
             }
             return `
@@ -656,6 +742,7 @@
                 if (handleAuthFailure(resp)) return;
                 const data = await resp.json();
                 if (!resp.ok) {
+                    <!-- USER-FACING -->
                     rows.innerHTML = `<tr><td colspan="4"><span class="error">${esc(data.detail || "Failed to load Subsystems")}</span></td></tr>`;
                     return;
                 }
@@ -677,8 +764,10 @@
                 if (handleAuthFailure(resp)) return;
                 const data = await resp.json().catch(() => ({}));
                 if (resp.ok) {
+                    <!-- USER-FACING -->
                     flash(msgId, `Subsystem '${name}': ${action} done.`);
                 } else {
+                    <!-- USER-FACING -->
                     flash(msgId, data.detail || "The action was refused.", true);
                 }
                 loadServices();
@@ -711,17 +800,20 @@
                 if (handleAuthFailure(resp)) return;
                 const data = await resp.json();
                 if (!resp.ok) {
+                    <!-- USER-FACING -->
                     rows.innerHTML = `<tr><td colspan="4"><span class="error">${esc(data.detail || "Failed to list the Media Root")}</span></td></tr>`;
                     return;
                 }
                 document.getElementById('files-path').textContent = `/${data.path}`;
                 document.getElementById('files-up').disabled = data.path === "";
                 if (!data.entries.length) {
+                    <!-- USER-FACING -->
                     rows.innerHTML = `<tr><td colspan="4" class="details">Empty directory.</td></tr>`;
                     return;
                 }
                 rows.innerHTML = data.entries.map(entry => {
                     const path = joinPath(data.path, entry.name);
+                    <!-- USER-FACING -->
                     return `
                     <tr>
                         <td class="actor">${entry.is_dir
@@ -762,14 +854,17 @@
 
             let body;
             if (op === 'delete') {
+                <!-- USER-FACING -->
                 if (!confirm(`Hard-delete ${path}? This cannot be undone.`)) return;
                 body = { path };
             } else if (op === 'rename') {
+                <!-- USER-FACING -->
                 const name = prompt(`New name for ${path}:`);
                 if (!name) return;
                 body = { path, new_name: name.trim() };
             } else if (op === 'move') {
                 const dir = prompt(
+                    <!-- USER-FACING -->
                     `Move ${path} to which directory inside the Media Root?\n(e.g. Movie, or TV Show/Season 1)`,
                     parentPath(path)
                 );
@@ -786,12 +881,16 @@
                 if (handleAuthFailure(resp)) return;
                 const data = await resp.json().catch(() => ({}));
                 if (resp.ok) {
+                    <!-- USER-FACING -->
                     flash(msgId, op === 'delete' ? `Deleted ${path}.`
+                        <!-- USER-FACING -->
                         : op === 'rename' ? `Renamed ${path} to ${data.to}.`
+                        <!-- USER-FACING -->
                         : `Moved ${path} to ${data.to}.`);
                 } else {
                     // Protected Paths, sandbox escapes and taken targets
                     // arrive as the manager's refusal, shown inline.
+                    <!-- USER-FACING -->
                     flash(msgId, data.detail || "The operation was refused.", true);
                 }
                 loadFiles();
@@ -805,6 +904,7 @@
             document.getElementById('vpn-provider').value = vpn.provider || "";
             document.getElementById('vpn-user').value = vpn.openvpn_user || "";
             document.getElementById('vpn-server').value = vpn.server || "";
+            <!-- USER-FACING -->
             document.getElementById('vpn-status-rows').innerHTML = `
                 <tr><td class="actor">Provider</td><td>${esc(vpn.provider || "—")}</td></tr>
                 <tr><td class="actor">Server</td><td>${esc(vpn.server || "—")}</td></tr>
@@ -817,6 +917,7 @@
                 if (handleAuthFailure(resp)) return;
                 const data = await resp.json();
                 if (!resp.ok) {
+                    <!-- USER-FACING -->
                     flash('vpn-config-message', data.detail || "Failed to load VPN status.", true);
                     return;
                 }
@@ -846,9 +947,11 @@
                 if (handleAuthFailure(resp)) return;
                 const data = await resp.json();
                 if (!resp.ok) {
+                    <!-- USER-FACING -->
                     flash(msgId, data.detail || "Could not save the VPN settings.", true);
                     return;
                 }
+                <!-- USER-FACING -->
                 flash(msgId, "VPN settings saved; restarting gluetun to apply...");
                 // Applying the change needs a gluetun restart — the same
                 // Subsystems action the Subsystems page uses.
@@ -856,8 +959,10 @@
                 if (handleAuthFailure(restart)) return;
                 const restartData = await restart.json().catch(() => ({}));
                 if (restart.ok) {
+                    <!-- USER-FACING -->
                     flash(msgId, "VPN settings saved; gluetun restarted.");
                 } else {
+                    <!-- USER-FACING -->
                     flash(msgId, restartData.detail || "Settings saved, but the gluetun restart was refused.", true);
                 }
                 document.getElementById('vpn-password').value = "";
@@ -874,8 +979,10 @@
                 if (handleAuthFailure(resp)) return;
                 const data = await resp.json();
                 if (resp.ok) {
+                    <!-- USER-FACING -->
                     flash(msgId, `Current egress IP: ${data.egress_ip || "unknown (probe failed)"}`);
                 } else {
+                    <!-- USER-FACING -->
                     flash(msgId, data.detail || "The test failed.", true);
                 }
             } catch (err) {
@@ -915,11 +1022,13 @@
         }
 
         function formatBytes(bytes) {
+            <!-- USER-FACING -->
             if (bytes === null || bytes === undefined) return "—";
             const units = ["B", "KB", "MB", "GB", "TB"];
             let size = bytes;
             for (const unit of units) {
                 if (size < 1024 || unit === "TB") {
+                    <!-- USER-FACING -->
                     return unit === "B" ? `${size} B` : `${size.toFixed(2)} ${unit}`;
                 }
                 size /= 1024;
@@ -930,30 +1039,41 @@
         // a per-Account override, or the global default.
         function describeQuota(account) {
             const q = account.quota;
+            <!-- USER-FACING -->
             if (q.exempt) return "Exempt (Admin)";
+            <!-- USER-FACING -->
             if (q.unlimited) return "Unlimited";
             return q.override_bytes !== null
+                <!-- USER-FACING -->
                 ? `Override (${formatBytes(q.cap_bytes)})`
+                <!-- USER-FACING -->
                 : `Default (${formatBytes(q.cap_bytes)})`;
         }
 
         function usageVsCap(account) {
             const q = account.quota;
+            <!-- USER-FACING -->
             const cap = q.cap_bytes === null ? "no cap" : formatBytes(q.cap_bytes);
+            <!-- USER-FACING -->
             return `${formatBytes(q.used_bytes)} / ${cap}`;
         }
 
         function describeDiscord(account) {
+            <!-- USER-FACING -->
             if (account.discord_id) return `Linked: ${account.discord_id}`;
             if (account.link_code) {
+                <!-- USER-FACING -->
                 return `Pending code: ${account.link_code.code} (claims ${account.link_code.discord_id})`;
             }
+            <!-- USER-FACING -->
             return "—";
         }
 
         function renderUserRow(account) {
             const quotaControls = account.quota.exempt
+                <!-- USER-FACING -->
                 ? "—"
+                <!-- USER-FACING -->
                 : `
                 <span class="inline-quota">
                     <select data-quota-mode="${account.id}">
@@ -967,8 +1087,11 @@
                     <button data-action="set-quota" data-id="${account.id}">Set</button>
                 </span>`;
             const status = account.disabled
+                <!-- USER-FACING -->
                 ? `<span class="badge-disabled">Disabled</span>`
+                <!-- USER-FACING -->
                 : `<span class="badge-enabled">Enabled</span>`;
+            <!-- USER-FACING -->
             return `
                 <tr>
                     <td class="actor">${esc(account.username)}</td>
@@ -993,6 +1116,7 @@
                 if (handleAuthFailure(resp)) return;
                 const data = await resp.json();
                 if (!resp.ok) {
+                    <!-- USER-FACING -->
                     rows.innerHTML = `<tr><td colspan="6"><span class="error">${esc(data.detail || "Failed to load Accounts")}</span></td></tr>`;
                     return;
                 }
@@ -1022,10 +1146,12 @@
             const role = document.getElementById('new-role').value;
             const mode = document.getElementById('new-quota-mode').value;
             if (!username) {
+                <!-- USER-FACING -->
                 flash(msgId, "A username is required.", true);
                 return;
             }
             if (password.length < 8) {
+                <!-- USER-FACING -->
                 flash(msgId, "Password must be at least 8 characters.", true);
                 return;
             }
@@ -1035,6 +1161,7 @@
             } else if (mode === 'override') {
                 const gb = parseFloat(document.getElementById('new-quota-gb').value);
                 if (isNaN(gb) || gb < 0) {
+                    <!-- USER-FACING -->
                     flash(msgId, "Enter the override size in GB.", true);
                     return;
                 }
@@ -1051,10 +1178,12 @@
                 if (handleAuthFailure(resp)) return;
                 const data = await resp.json();
                 if (resp.ok) {
+                    <!-- USER-FACING -->
                     flash(msgId, `Account '${username}' created.`);
                     this.reset();
                     loadUsers();
                 } else {
+                    <!-- USER-FACING -->
                     flash(msgId, data.detail || "Could not create the Account.", true);
                 }
             } catch (err) {
@@ -1079,9 +1208,11 @@
             let resp;
             try {
                 if (action === 'reset') {
+                    <!-- USER-FACING -->
                     const password = prompt(`New password for ${btn.dataset.username} (min 8 characters):`);
                     if (!password) return;
                     if (password.length < 8) {
+                        <!-- USER-FACING -->
                         flash(msgId, "Password must be at least 8 characters.", true);
                         return;
                     }
@@ -1098,6 +1229,7 @@
                     else {
                         const gb = parseFloat(document.querySelector(`[data-quota-gb="${id}"]`).value);
                         if (isNaN(gb) || gb < 0) {
+                            <!-- USER-FACING -->
                             flash(msgId, "Enter the override size in GB.", true);
                             return;
                         }
@@ -1114,14 +1246,18 @@
             const data = await resp.json().catch(() => ({}));
             if (resp.ok) {
                 if (action === 'revoke') {
+                    <!-- USER-FACING -->
                     flash(msgId, `Revoked ${data.sessions_revoked} session(s).`);
                 } else if (action === 'reset') {
+                    <!-- USER-FACING -->
                     flash(msgId, data.message || "Password reset.");
                 } else {
+                    <!-- USER-FACING -->
                     flash(msgId, "Done.");
                 }
                 loadUsers();
             } else {
+                <!-- USER-FACING -->
                 flash(msgId, data.detail || "The action was refused.", true);
             }
         });

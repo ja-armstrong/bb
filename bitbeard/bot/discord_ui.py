@@ -18,8 +18,11 @@ from discord.ui import Button, Select, View
 
 
 CATEGORY_OPTIONS = [
+    # USER-FACING
     discord.SelectOption(label="Movie", emoji="🎬"),
+    # USER-FACING
     discord.SelectOption(label="TV Show", emoji="📺"),
+    # USER-FACING
     discord.SelectOption(label="Other", emoji="📁"),
 ]
 
@@ -45,6 +48,7 @@ class CategorySelectView(View):
         self.magnet_link = magnet_link
         self.submit = submit
         self._select = Select(
+            # USER-FACING
             placeholder="Choose a category", options=CATEGORY_OPTIONS
         )
         self._select.callback = self.choose_category
@@ -58,6 +62,7 @@ class CategorySelectView(View):
             # Start the download (non-blocking)
             await self.submit(self.magnet_link, category)
             await interaction.channel.send(
+                # USER-FACING
                 f"Magnet link added to qBittorrent under {category}."
             )
             # Delete the category selection message
@@ -65,6 +70,7 @@ class CategorySelectView(View):
         except Exception as e:
             logging.error(f"Category selection failed: {e}")
             try:
+                # USER-FACING
                 await send_error(interaction, f"Error: {str(e)}")
             except Exception as send_failure:
                 logging.error(
@@ -92,12 +98,15 @@ class SearchResultsView(View):
         self.results = results
         self.submit = submit
         self.page = 0
+        # USER-FACING
         self._select = Select(placeholder="Choose a result")
         self._select.callback = self.choose_result
         self.add_item(self._select)
+        # USER-FACING
         self._prev = Button(label="Prev", style=discord.ButtonStyle.secondary)
         self._prev.callback = self.prev_page
         self.add_item(self._prev)
+        # USER-FACING
         self._next = Button(label="Next", style=discord.ButtonStyle.secondary)
         self._next.callback = self.next_page
         self.add_item(self._next)
@@ -111,8 +120,10 @@ class SearchResultsView(View):
         start = self.page * self.PAGE_SIZE
         self._select.options = [
             discord.SelectOption(
+                # USER-FACING
                 label=(result.get("title") or "(untitled result)")[:100],
                 description=(
+                    # USER-FACING
                     f"{float(result.get('size_gb') or 0):.2f} GB | "
                     f"{result.get('seeders') or 0} seeders"
                 )[:100],
@@ -123,6 +134,7 @@ class SearchResultsView(View):
             )
         ]
         self._select.placeholder = (
+            # USER-FACING
             f"Choose a result (page {self.page + 1} of {self.page_count()})"
         )
         self._prev.disabled = self.page == 0
@@ -145,6 +157,7 @@ class SearchResultsView(View):
             )
 
         await interaction.response.send_message(
+            # USER-FACING
             "Pick a Category:",
             view=CategorySelectView(result["magnet_link"], submit_bound),
         )
@@ -175,13 +188,16 @@ class CancelSelectView(View):
     def __init__(self, downloads, cancel):
         super().__init__(timeout=300)
         self.cancel = cancel
+        # USER-FACING
         self._select = Select(placeholder="Cancel which Download?")
         for download in downloads:
             self._select.add_option(
                 label=(
+                    # USER-FACING
                     f"#{download['id']} {download.get('name') or '(unnamed)'}"
                 )[:100],
                 value=str(download["id"]),
+                # USER-FACING
                 description=(download.get("progress") or "…")[:100],
             )
         self._select.callback = self.cancel_chosen
@@ -192,6 +208,7 @@ class CancelSelectView(View):
         try:
             await interaction.response.defer()
             await self.cancel(download_id)
+            # USER-FACING
             await interaction.channel.send("Download cancelled.")
             await interaction.message.delete()
         except Exception as e:

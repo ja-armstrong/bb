@@ -44,6 +44,7 @@ def error_text(result) -> str:
     payload = result.payload
     if isinstance(payload, dict) and payload.get("detail"):
         return str(payload["detail"])
+    # USER-FACING
     return f"API error {result.status_code}."
 
 
@@ -110,6 +111,7 @@ async def submit_magnet(message, api):
         message.content.strip(),
         make_submitter(api, discord_id, discord_name),
     )
+    # USER-FACING
     await message.channel.send("Pick a Category for that magnet:", view=view)
 
 
@@ -122,11 +124,13 @@ async def run_search(message, api, query):
         return
     results = (result.payload or {}).get("results", [])
     if not results:
+        # USER-FACING
         await message.channel.send(f"No results for '{query}'.")
         return
     view = SearchResultsView(
         results, make_submitter(api, discord_id, discord_name)
     )
+    # USER-FACING
     await message.channel.send(f"Results for '{query}':", view=view)
 
 
@@ -137,17 +141,23 @@ async def show_progress(message, api):
         return
     in_flight_rows = in_flight(downloads)
     if not in_flight_rows:
+        # USER-FACING
         await message.channel.send("You have no In-flight Downloads.")
         return
     lines = [
+        # USER-FACING
         "{name} — {progress} (ETA {eta})".format(
+            # USER-FACING
             name=row.get("name") or "(unnamed)",
+            # USER-FACING
             progress=row.get("progress") or "…",
+            # USER-FACING
             eta=row.get("eta") or "…",
         )
         for row in in_flight_rows
     ]
     await message.channel.send(
+        # USER-FACING
         "In-flight Downloads:\n" + "\n".join(lines)
     )
 
@@ -160,6 +170,7 @@ async def show_cancel(message, api):
     in_flight_rows = in_flight(downloads)
     if not in_flight_rows:
         await message.channel.send(
+            # USER-FACING
             "You have no In-flight Downloads to cancel."
         )
         return
@@ -168,6 +179,7 @@ async def show_cancel(message, api):
         in_flight_rows, make_canceller(api, discord_id, discord_name)
     )
     await message.channel.send(
+        # USER-FACING
         "Which Download should be cancelled?", view=view
     )
 

@@ -109,6 +109,7 @@ class ApiClient:
         try:
             return call()
         except Exception as exc:
+            # USER-FACING
             return ApiResult(503, {"detail": f"API unreachable: {exc}"})
 
     def search(
