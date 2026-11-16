@@ -1,5 +1,5 @@
-# Local build artifacts
-/bitbeard
+# Local build artifacts — build Go binaries with: go build -o bin/ ./cmd/bitbeard
+/bin/
 /bitbeard-linux-*
 /bitbeard.exe
 
