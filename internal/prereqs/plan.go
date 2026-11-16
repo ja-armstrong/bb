@@ -43,7 +43,10 @@ func sudo(name string, args ...string) step {
 // get.docker.com script: they keep apt as the single owner of the daemon
 // and cover both Ubuntu (docker-compose-v2) and Debian (docker-compose,
 // which is Compose v2 on trixie) without adding third-party repository keys.
-func buildPlan(d distro, needDocker, needCompose bool) []action {
+// Installing Docker also adds the operator to the `docker` group, so a new
+// login session can reach the daemon without sudo; the step is skipped when
+// the operator's name is unknown.
+func buildPlan(d distro, needDocker, needCompose bool, operator string) []action {
 	if !needDocker && !needCompose {
 		return nil
 	}
@@ -51,6 +54,9 @@ func buildPlan(d distro, needDocker, needCompose bool) []action {
 	plan = append(plan, action{primary: sudo("apt-get", "update")})
 	if needDocker {
 		plan = append(plan, action{primary: sudo("apt-get", "install", "-y", "docker.io")})
+		if operator != "" {
+			plan = append(plan, action{primary: sudo("usermod", "-aG", "docker", operator)})
+		}
 	}
 	if needCompose {
 		chain := composePackageChain(d)

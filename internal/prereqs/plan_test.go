@@ -15,6 +15,7 @@ func TestBuildPlan(t *testing.T) {
 		d           distro
 		needDocker  bool
 		needCompose bool
+		operator    string
 		want        []string // display lines, in order
 	}{
 		{
@@ -25,14 +26,27 @@ func TestBuildPlan(t *testing.T) {
 			d:           ubuntu,
 			needDocker:  true,
 			needCompose: true,
+			operator:    "operator",
 			want: []string{
 				"sudo apt-get update",
 				"sudo apt-get install -y docker.io",
+				"sudo usermod -aG docker operator",
 				"sudo apt-get install -y docker-compose-v2",
 			},
 		},
 		{
 			name:       "ubuntu missing only docker",
+			d:          ubuntu,
+			needDocker: true,
+			operator:   "operator",
+			want: []string{
+				"sudo apt-get update",
+				"sudo apt-get install -y docker.io",
+				"sudo usermod -aG docker operator",
+			},
+		},
+		{
+			name:       "unknown operator skips the group step",
 			d:          ubuntu,
 			needDocker: true,
 			want: []string{
@@ -44,6 +58,7 @@ func TestBuildPlan(t *testing.T) {
 			name:        "ubuntu missing only compose",
 			d:           ubuntu,
 			needCompose: true,
+			operator:    "operator",
 			want: []string{
 				"sudo apt-get update",
 				"sudo apt-get install -y docker-compose-v2",
@@ -54,9 +69,11 @@ func TestBuildPlan(t *testing.T) {
 			d:           debian,
 			needDocker:  true,
 			needCompose: true,
+			operator:    "operator",
 			want: []string{
 				"sudo apt-get update",
 				"sudo apt-get install -y docker.io",
+				"sudo usermod -aG docker operator",
 				"sudo apt-get install -y docker-compose",
 			},
 		},
@@ -64,6 +81,7 @@ func TestBuildPlan(t *testing.T) {
 			name:        "debian descendant missing only compose",
 			d:           distro{ID: "kali", IDLike: []string{"debian"}},
 			needCompose: true,
+			operator:    "operator",
 			want: []string{
 				"sudo apt-get update",
 				"sudo apt-get install -y docker-compose",
@@ -72,7 +90,7 @@ func TestBuildPlan(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			plan := buildPlan(tt.d, tt.needDocker, tt.needCompose)
+			plan := buildPlan(tt.d, tt.needDocker, tt.needCompose, tt.operator)
 			var got []string
 			for _, a := range plan {
 				got = append(got, a.primary.display())
