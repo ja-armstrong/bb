@@ -44,9 +44,29 @@ Panel.
 _Avoid_: component, module, service (when distinguishing one Subsystem from another)
 
 **Optional Subsystem**:
-A Subsystem that may be disabled from the Admin Panel. Currently only the Bot; all
+A Subsystem that may be absent from the running stack: not enabled during Bootstrap,
+or disabled later from the Admin Panel. Currently the Bot and the Media Server; all
 others are mandatory and restartable only.
 _Avoid_: non-critical service
+
+**Media Server**:
+The Optional Subsystem that serves the Media Root to viewers outside the stack. Plex
+or Jellyfin, chosen once at Bootstrap. No Frontend or service talks to it; it reads
+the Media Root directly.
+_Avoid_: plex (when naming the role), jellyfin (when naming the role)
+
+### Bootstrap
+
+**Bootstrap**:
+The setup program that prepares a machine to run the stack: installs prerequisites,
+fetches the repository, collects credentials, and brings the stack up. Rerunning it
+enables a skipped Optional Subsystem or revisits any credential.
+_Avoid_: installer, setup script, wizard (for the program as a whole)
+
+**Doctor**:
+The Bootstrap's check-only mode: verifies prerequisites, configuration, and stack
+health, changing nothing.
+_Avoid_: status, diagnostics
 
 ### Identity & audit
 
