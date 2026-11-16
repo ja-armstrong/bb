@@ -92,6 +92,7 @@ services:
   plex:
     image: linuxserver/plex
     container_name: plex
+    profiles: ["plex"]
     environment:
       - PUID=1000
       - PGID=1000
@@ -102,6 +103,21 @@ services:
       - ./media:/media
     ports:
       - 32400:32400
+    restart: unless-stopped
+
+  jellyfin:
+    image: linuxserver/jellyfin
+    container_name: jellyfin
+    profiles: ["jellyfin"]
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - ./jellyfin:/config
+      - ./media:/media
+    ports:
+      - 8096:8096
     restart: unless-stopped
 
   api:
@@ -166,6 +182,7 @@ services:
       context: .
       dockerfile: bot/Dockerfile
     container_name: bot
+    profiles: ["bot"]
     depends_on:
       gluetun:
         condition: service_started
