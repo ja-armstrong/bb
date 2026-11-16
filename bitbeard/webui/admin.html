@@ -4,236 +4,6 @@
     <meta charset="UTF-8">
     <!-- USER-FACING -->
     <title>Bitbeard Admin</title>
-    <link href="https://fonts.googleapis.com/css?family=Pirata+One|Roboto:400,700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Roboto', Arial, sans-serif;
-            margin: 0;
-            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-            min-height: 100vh;
-        }
-        header {
-            background: #0f172a;
-            color: #fbbf24;
-            padding: 24px 0 18px 0;
-            text-align: center;
-            box-shadow: 0 4px 24px #0004;
-        }
-        .logo {
-            font-family: 'Pirata One', cursive;
-            font-size: 2.6rem;
-            letter-spacing: 2px;
-            color: #fbbf24;
-            text-shadow: 2px 4px 0 #000a, 0 0 8px #fbbf2440;
-        }
-        .subtitle {
-            font-size: 1rem;
-            color: #f1f5f9;
-            letter-spacing: 1px;
-            margin-top: 0.2em;
-        }
-        main {
-            max-width: 960px;
-            margin: 28px auto 0 auto;
-            padding: 0 16px 40px 16px;
-        }
-        .userbar {
-            display: flex;
-            justify-content: flex-end;
-            align-items: center;
-            gap: 12px;
-            color: #f1f5f9;
-            font-size: 0.95em;
-            margin-bottom: 14px;
-        }
-        .userbar button {
-            width: auto;
-            padding: 6px 16px;
-            font-size: 0.9em;
-            background: #334155;
-            color: #fbbf24;
-            border-radius: 5px;
-        }
-        nav {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 18px;
-            flex-wrap: wrap;
-        }
-        nav button {
-            width: auto;
-            margin-top: 0;
-            padding: 8px 18px;
-            font-size: 0.98em;
-            background: #334155;
-            color: #fbbf24;
-            border-radius: 5px;
-        }
-        nav button.active {
-            background: #fbbf24;
-            color: #0f172a;
-        }
-        nav button:disabled {
-            opacity: 0.45;
-            cursor: not-allowed;
-        }
-        .section {
-            background: #f1f5f9;
-            padding: 28px 24px 22px 24px;
-            margin-bottom: 36px;
-            border-radius: 14px;
-            box-shadow: 0 2px 16px #0002;
-            border: 1.5px solid #e2e8f0;
-        }
-        h2 {
-            color: #0f172a;
-            font-size: 1.35rem;
-            margin-bottom: 18px;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-        }
-        label {
-            display: block;
-            margin-top: 12px;
-            color: #334155;
-            font-weight: 500;
-        }
-        input, select, button {
-            margin-top: 7px;
-            padding: 10px 12px;
-            border-radius: 6px;
-            border: 1.5px solid #cbd5e1;
-            width: 100%;
-            font-size: 1rem;
-            font-family: inherit;
-            background: #fff;
-            box-sizing: border-box;
-        }
-        input:focus, select:focus {
-            border: 1.5px solid #fbbf24;
-            outline: none;
-        }
-        button {
-            width: auto;
-            background: linear-gradient(90deg, #fbbf24 60%, #f59e42 100%);
-            color: #0f172a;
-            border: none;
-            cursor: pointer;
-            font-weight: 700;
-            font-size: 1.05rem;
-            padding: 10px 28px;
-            margin-top: 18px;
-            box-shadow: 0 2px 8px #fbbf2420;
-        }
-        button:hover {
-            background: linear-gradient(90deg, #f59e42 60%, #fbbf24 100%);
-            color: #fff;
-        }
-        .filters {
-            display: flex;
-            gap: 14px;
-            flex-wrap: wrap;
-            align-items: flex-end;
-        }
-        .filters div {
-            flex: 1 1 160px;
-        }
-        .filters button {
-            flex: 0 0 auto;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 18px;
-            font-size: 0.95em;
-        }
-        th {
-            text-align: left;
-            color: #0f172a;
-            border-bottom: 2px solid #cbd5e1;
-            padding: 8px 10px;
-        }
-        td {
-            border-bottom: 1px solid #e2e8f0;
-            padding: 8px 10px;
-            vertical-align: top;
-            color: #334155;
-        }
-        td.actor, td.action {
-            white-space: nowrap;
-            font-weight: 600;
-        }
-        td.details {
-            word-break: break-all;
-            color: #64748b;
-        }
-        .pagination {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 14px;
-        }
-        .pagination button {
-            min-width: 90px;
-            background: #334155;
-            color: #fbbf24;
-            font-size: 1em;
-            padding: 7px 18px;
-            border-radius: 5px;
-            margin: 0 4px;
-        }
-        .pagination button:hover {
-            background: #fbbf24;
-            color: #0f172a;
-        }
-        .pagination button:disabled {
-            opacity: 0.45;
-            cursor: not-allowed;
-        }
-        #page-info {
-            flex: 1;
-            text-align: center;
-            color: #0f172a;
-            font-weight: 500;
-        }
-        .success { color: #22c55e; font-weight: 600; }
-        .error { color: #ef4444; font-weight: 600; }
-        .hidden { display: none !important; }
-        .badge-disabled { color: #ef4444; font-weight: 700; }
-        .badge-enabled { color: #22c55e; }
-        td button {
-            width: auto;
-            margin: 2px 4px 2px 0;
-            padding: 4px 10px;
-            font-size: 0.85em;
-            background: #334155;
-            color: #fbbf24;
-            box-shadow: none;
-        }
-        td button:hover {
-            background: #fbbf24;
-            color: #0f172a;
-        }
-        .inline-quota {
-            display: flex;
-            gap: 4px;
-            align-items: center;
-        }
-        .inline-quota select, .inline-quota input {
-            margin-top: 0;
-            padding: 4px 6px;
-            font-size: 0.85em;
-            width: auto;
-        }
-        .login-card {
-            max-width: 420px;
-            margin: 60px auto 0 auto;
-        }
-        @media (max-width: 700px) {
-            main { max-width: 98vw; }
-            .section { padding: 18px 6vw 16px 6vw; }
-        }
-    </style>
 </head>
 <body>
     <header>
@@ -261,7 +31,7 @@
             </form>
         </div>
 
-        <div id="app-view" class="hidden">
+        <div id="app-view" hidden>
             <div class="userbar">
                 <span id="userbar-info"></span>
                 <!-- USER-FACING -->
@@ -271,7 +41,7 @@
             <!-- One button per Admin Panel page. -->
             <nav id="nav">
                 <!-- USER-FACING -->
-                <button data-page="audit" class="active">Audit Ledger</button>
+                <button data-page="audit">Audit Ledger</button>
                 <!-- USER-FACING -->
                 <button data-page="users">Users</button>
                 <!-- USER-FACING -->
@@ -339,7 +109,7 @@
                 </div>
             </div>
 
-            <div class="section page hidden" id="page-users">
+            <div class="section page" id="page-users" hidden>
                 <!-- USER-FACING -->
                 <h2>Accounts</h2>
                 <form id="user-create-form" autocomplete="off">
@@ -376,7 +146,7 @@
                                 <option value="unlimited">Unlimited</option>
                             </select>
                         </div>
-                        <div class="hidden" id="new-quota-wrap">
+                        <div id="new-quota-wrap" hidden>
                             <!-- USER-FACING -->
                             <label for="new-quota-gb">Override (GB):</label>
                             <input type="number" id="new-quota-gb" min="0" step="0.001">
@@ -408,7 +178,7 @@
                 <div id="users-message"></div>
             </div>
 
-            <div class="section page hidden" id="page-subsystems">
+            <div class="section page" id="page-subsystems" hidden>
                 <!-- USER-FACING -->
                 <h2>Subsystems</h2>
                 <table>
@@ -429,7 +199,7 @@
                 <div id="services-message"></div>
             </div>
 
-            <div class="section page hidden" id="page-files">
+            <div class="section page" id="page-files" hidden>
                 <!-- USER-FACING -->
                 <h2>Media Root Files</h2>
                 <div class="filters">
@@ -459,7 +229,7 @@
                 <div id="files-message"></div>
             </div>
 
-            <div class="section page hidden" id="page-vpn">
+            <div class="section page" id="page-vpn" hidden>
                 <!-- USER-FACING -->
                 <h2>VPN (gluetun)</h2>
                 <form id="vpn-config-form" autocomplete="off">
@@ -518,8 +288,8 @@
         const appView = document.getElementById('app-view');
 
         function showLogin() {
-            appView.classList.add('hidden');
-            loginView.classList.remove('hidden');
+            appView.hidden = true;
+            loginView.hidden = false;
         }
 
         async function showApp() {
@@ -542,8 +312,8 @@
                 document.getElementById('userbar-info').textContent =
                     <!-- USER-FACING -->
                     `Logged in as ${me.username} (${me.role})`;
-                loginView.classList.add('hidden');
-                appView.classList.remove('hidden');
+                loginView.hidden = true;
+                appView.hidden = false;
                 showPage('audit');
             } catch (err) {
                 showLogin();
@@ -993,13 +763,10 @@
         // --- Panel page routing ---------------------------------------
 
         function showPage(name) {
-            document.querySelectorAll('#nav button').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.page === name);
-            });
             document.querySelectorAll('.page').forEach(section => {
-                section.classList.add('hidden');
+                section.hidden = true;
             });
-            document.getElementById(`page-${name}`).classList.remove('hidden');
+            document.getElementById(`page-${name}`).hidden = false;
             if (name === 'audit') loadLedger();
             else if (name === 'users') loadUsers();
             else if (name === 'subsystems') loadServices();
@@ -1083,7 +850,7 @@
                     </select>
                     <input type="number" min="0" step="0.001"
                            data-quota-gb="${account.id}"
-                           placeholder="GB" style="display:none">
+                           placeholder="GB" hidden>
                     <button data-action="set-quota" data-id="${account.id}">Set</button>
                 </span>`;
             const status = account.disabled
@@ -1135,7 +902,7 @@
             const input = document.querySelector(
                 `[data-quota-gb="${modeSelect.dataset.quotaMode}"]`
             );
-            input.style.display = modeSelect.value === 'override' ? "" : "none";
+            input.hidden = modeSelect.value !== 'override';
         });
 
         document.getElementById('user-create-form').addEventListener('submit', async function(e) {
@@ -1264,9 +1031,7 @@
 
         // Show/hide the override GB field in the create form.
         document.getElementById('new-quota-mode').addEventListener('change', function() {
-            document.getElementById('new-quota-wrap').classList.toggle(
-                'hidden', this.value !== 'override'
-            );
+            document.getElementById('new-quota-wrap').hidden = this.value !== 'override';
         });
 
         // Initial load: prove the Admin Session before revealing the panel.
