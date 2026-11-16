@@ -192,7 +192,7 @@ func TestRunFullBuiltInProviderFlow(t *testing.T) {
 		"DEFAULT_QUOTA_GB",
 		"SESSION_TTL_HOURS",
 		"BASE_DOWNLOAD_DIR",
-		"Media Server (number",
+		"Media Server (empty = skip)",
 		"DISCORD_BOT_TOKEN (empty",
 	}
 	last := -1
@@ -404,7 +404,7 @@ func TestRunRerunWithInvalidEnvOffersRedoAndDeclines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out)
 	}
-	if !strings.Contains(out, "change-me") {
+	if !strings.Contains(out, "Change SERVICE_TOKEN") {
 		t.Errorf("problems not explained:\n%s", out)
 	}
 	if len(comp.upDirs) != 0 {

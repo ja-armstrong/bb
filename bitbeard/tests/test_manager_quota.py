@@ -866,4 +866,4 @@ def test_delete_endpoint_reports_unknown_and_active_downloads(tmp_path):
 
     assert missing.status_code == 404
     assert active.status_code == 409
-    assert "Active Torrent" in active.json()["detail"]
+    assert "active torrent" in active.json()["detail"]

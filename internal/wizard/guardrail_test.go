@@ -89,7 +89,7 @@ func TestGuardrailProblemsChangeMe(t *testing.T) {
 	probs := GuardrailProblems(e)
 	joined := strings.Join(probs, "; ")
 	for _, k := range []string{"SERVICE_TOKEN", "ADMIN_PASSWORD", "JACKETT_API_KEY"} {
-		if !strings.Contains(joined, k+" still carries its change-me placeholder") {
+		if !strings.Contains(joined, "Change "+k) {
 			t.Errorf("GuardrailProblems did not flag %s: %v", k, probs)
 		}
 	}

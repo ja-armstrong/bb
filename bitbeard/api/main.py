@@ -483,7 +483,7 @@ def create_app(
         row = db.get_download(config.db_path, download_id)
         if row is None:
             # USER-FACING
-            raise HTTPException(status_code=404, detail="No such Download.")
+            raise HTTPException(status_code=404, detail="No such download.")
         if caller.account_id is not None:
             owner_mismatch = row["account"] != caller.account_id
         else:
@@ -492,7 +492,7 @@ def create_app(
             raise HTTPException(
                 status_code=403,
                 # USER-FACING
-                detail="This Download belongs to another Actor.",
+                detail="This download belongs to another Actor.",
             )
         return row
 
@@ -907,7 +907,7 @@ def create_app(
             raise HTTPException(
                 status_code=400,
                 # USER-FACING
-                detail="That Discord ID is already linked to another Account.",
+                detail="That Discord ID is already linked to another account.",
             )
         code = db.create_link_code(
             config.db_path, caller.account_id, discord_id
@@ -1066,7 +1066,7 @@ def create_app(
             raise HTTPException(
                 status_code=400,
                 # USER-FACING
-                detail="Refusing to disable the last enabled Admin.",
+                detail="dawg at least one admin. come on man.",
             )
         db.set_disabled(config.db_path, account_id, True)
         revoked = app.state.sessions.revoke_all_for_account(account_id)
@@ -1237,7 +1237,7 @@ def create_app(
         """
         if name not in subsystem_ports():
             # USER-FACING
-            raise HTTPException(status_code=404, detail="No such Subsystem.")
+            raise HTTPException(status_code=404, detail="No such subsystem.")
 
         if action in CONTAINER_ACTIONS:
             state = docker_or_502(lambda: control.act(name, action))
@@ -1247,7 +1247,7 @@ def create_app(
                 raise HTTPException(
                     status_code=400,
                     # USER-FACING
-                    detail="Only the Optional Subsystem can be disabled.",
+                    detail="Only optional subsystems can be disabled.",
                 )
             state = docker_or_502(lambda: control.act(name, "stop"))
             db.set_service_disabled(config.db_path, name, True)
@@ -1256,7 +1256,7 @@ def create_app(
             if name not in OPTIONAL_SUBSYSTEMS:
                 raise HTTPException(
                     status_code=400,
-                    detail="Only the Optional Subsystem can be disabled.",
+                    detail="Only optional subsystems can be disabled.",
                 )
             state = docker_or_502(lambda: control.act(name, "start"))
             db.set_service_disabled(config.db_path, name, False)

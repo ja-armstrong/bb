@@ -428,7 +428,7 @@ def test_the_last_enabled_admin_cannot_be_disabled(tmp_path):
         response = client.post(f"/admin/users/{_admin_id(config)}/disable")
 
     assert response.status_code == 400
-    assert "last enabled Admin" in response.json()["detail"]
+    assert "at least one admin" in response.json()["detail"]
     # The Admin is untouched and still holds their Session.
     assert db.count_enabled_admins(config.db_path) == 1
     assert client.get("/auth/me").status_code == 200
@@ -447,7 +447,7 @@ def test_the_guard_lifts_once_a_second_enabled_admin_exists(tmp_path):
         # ...but the remaining one still cannot.
         response = client.post(f"/admin/users/{_admin_id(config)}/disable")
         assert response.status_code == 400
-        assert "last enabled Admin" in response.json()["detail"]
+        assert "at least one admin" in response.json()["detail"]
 
 
 def test_disabling_and_enabling_twice_are_refused(tmp_path):

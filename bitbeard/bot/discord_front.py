@@ -142,7 +142,7 @@ async def show_progress(message, api):
     in_flight_rows = in_flight(downloads)
     if not in_flight_rows:
         # USER-FACING
-        await message.channel.send("You have no In-flight Downloads.")
+        await message.channel.send("You have no downloads.")
         return
     lines = [
         # USER-FACING
@@ -158,7 +158,7 @@ async def show_progress(message, api):
     ]
     await message.channel.send(
         # USER-FACING
-        "In-flight Downloads:\n" + "\n".join(lines)
+        "Downloads:\n" + "\n".join(lines)
     )
 
 
@@ -171,7 +171,7 @@ async def show_cancel(message, api):
     if not in_flight_rows:
         await message.channel.send(
             # USER-FACING
-            "You have no In-flight Downloads to cancel."
+            "You have no downloads to cancel."
         )
         return
     discord_id, discord_name = actor_of(message)
@@ -180,7 +180,7 @@ async def show_cancel(message, api):
     )
     await message.channel.send(
         # USER-FACING
-        "Which Download should be cancelled?", view=view
+        "Which download should be cancelled?", view=view
     )
 
 

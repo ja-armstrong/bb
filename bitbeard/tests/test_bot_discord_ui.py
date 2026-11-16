@@ -289,7 +289,7 @@ def test_choosing_a_result_opens_the_category_picker_for_it():
 
         await view.choose_result(interaction)
 
-        assert interaction.response.messages == ["Pick a Category:"]
+        assert interaction.response.messages == ["Pick a category:"]
         prompt = interaction.response.views[0]
         assert isinstance(prompt, CategorySelectView)
         assert prompt.magnet_link == "magnet:?xt=urn:btih:27"

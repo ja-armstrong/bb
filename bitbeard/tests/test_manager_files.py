@@ -686,7 +686,7 @@ def test_delete_endpoint_refuses_protected_paths_with_409(tmp_path):
         )
 
     assert response.status_code == 409
-    assert "Active Torrent" in response.json()["detail"]
+    assert "active torrent" in response.json()["detail"]
 
 
 def test_rename_and_move_endpoints(tmp_path):

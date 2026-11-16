@@ -85,7 +85,7 @@ func main() {
 				fmt.Fprintln(os.Stdout, "Docker was installed, but this session cannot reach the Docker daemon yet: permission changes such as group membership only take effect in a new login session.")
 			}
 			// USER-FACING
-			fmt.Fprintln(os.Stdout, "Open a new shell (or log out and back in), then rerun `bitbeard setup`. Rerunning is safe and idempotent: installed prerequisites are skipped, the clone is reused, and the wizard runs in the new session.")
+			fmt.Fprintln(os.Stdout, "Open a new shell (or log out and back in), then rerun `bitbeard setup`.")
 			os.Exit(0)
 		}
 		// Fetch stage of the Bootstrap: clone or reuse the stack repository.
@@ -110,7 +110,7 @@ func main() {
 		// Verification step of the Bootstrap: the doctor's check-only sweep
 		// of prerequisites, .env guardrails and stack health.
 		// USER-FACING
-		fmt.Fprintln(os.Stdout, "bitbeard setup — final verification (the doctor; it changes nothing)")
+		fmt.Fprintln(os.Stdout, "bitbeard setup — final verification")
 		doctorRes := doctor.Run(doctor.Options{
 			StackDir: fetchRes.StackPath,
 			Out:      os.Stdout,

@@ -94,7 +94,7 @@ func healthyPSWith(names ...string) string {
 func TestAskMediaServer(t *testing.T) {
 	// Jellyfin is presented first and nudged as recommended.
 	out, err := runPrompt(t, "1\n", func(p *prompter) error {
-		v, err := p.askMediaServer("explanation\n")
+		v, err := p.askMediaServer(mediaServerExplanation)
 		if v != profileJellyfin {
 			t.Errorf("got %q, want jellyfin", v)
 		}
@@ -103,7 +103,7 @@ func TestAskMediaServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("askMediaServer: %v", err)
 	}
-	if !strings.Contains(out, "Jellyfin — recommended") {
+	if !strings.Contains(out, "recommended") {
 		t.Errorf("recommendation missing:\n%s", out)
 	}
 	if strings.Index(out, "Jellyfin") > strings.Index(out, "Plex") {
@@ -587,7 +587,7 @@ func TestRunFreshBotWithoutChannel(t *testing.T) {
 	if probs := e.Problems(); len(probs) > 0 {
 		t.Errorf("written .env invalid: %v", probs)
 	}
-	if !strings.Contains(out, "Bot: running without announcements") {
+	if !strings.Contains(out, "Bot: running") {
 		t.Errorf("announcements-off summary missing:\n%s", out)
 	}
 }
@@ -676,7 +676,7 @@ func TestRunRerunEnableBotWithoutChannel(t *testing.T) {
 	if e["DISCORD_ANNOUNCE_CHANNEL_ID"] != "" {
 		t.Errorf("DISCORD_ANNOUNCE_CHANNEL_ID = %q, want empty", e["DISCORD_ANNOUNCE_CHANNEL_ID"])
 	}
-	if !strings.Contains(out, "Bot: running without announcements") {
+	if !strings.Contains(out, "Bot: running") {
 		t.Errorf("announcements-off summary missing:\n%s", out)
 	}
 }

@@ -516,7 +516,7 @@ def test_rename_endpoint_refuses_an_active_torrent(tmp_path):
         )
 
     assert response.status_code == 409
-    assert "Active Torrent" in response.json()["detail"]
+    assert "active torrent" in response.json()["detail"]
 
 
 def test_cancel_endpoint_sweeps_only_that_download(tmp_path):

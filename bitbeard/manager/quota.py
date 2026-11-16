@@ -419,8 +419,8 @@ class QuotaLedger:
         if torrent is not None:
             raise ActiveTorrentError(
                 # USER-FACING
-                f"{save_path} belongs to an Active Torrent; its paths are "
-                "Protected — cancel the torrent first."
+                f"{save_path} belongs to an active torrent; its paths are "
+                "protected — cancel the torrent first."
             )
 
     def _relocate(self, row, target: str) -> None:
@@ -439,11 +439,11 @@ class QuotaLedger:
         if occupant is not None and occupant["id"] != row["id"]:
             raise PathTakenError(
                 # USER-FACING
-                f"{target} is already the save path of another Download."
+                f"{target} is already the save path of another download."
             )
         if os.path.exists(target):
             # USER-FACING
-            raise PathTakenError(f"{target} already exists on the Media Root.")
+            raise PathTakenError(f"{target} already exists on the media root.")
         if not os.path.exists(source):
             # The files are already gone (out-of-band change); the record
             # simply repoints.
@@ -459,7 +459,7 @@ class QuotaLedger:
         if target != root and not target.startswith(root + os.sep):
             raise OutsideMediaRootError(
                 # USER-FACING
-                f"{save_path} escapes the Media Root."
+                f"{save_path} is outside the media root."
             )
 
     def _remove_files(self, save_path: str) -> None:

@@ -154,10 +154,10 @@ func Run(o Options) (Result, error) {
 					return res, fmt.Errorf("re-reading %s: %w", res.EnvPath, err)
 				} else if w, perr := ParseEnv(string(data)); perr != nil {
 					// USER-FACING
-					return res, fmt.Errorf("the freshly written .env does not parse: %v", perr)
+					return res, fmt.Errorf(".env does not parse: %v", perr)
 				} else if probs := w.Problems(); len(probs) > 0 {
 					// USER-FACING
-					return res, fmt.Errorf("the freshly written .env failed validation: %s", strings.Join(probs, "; "))
+					return res, fmt.Errorf(".env failed validation: %s", strings.Join(probs, "; "))
 				}
 			} else {
 				// USER-FACING
@@ -247,10 +247,10 @@ func Run(o Options) (Result, error) {
 		return res, fmt.Errorf("re-reading %s: %w", res.EnvPath, err)
 	} else if w, perr := ParseEnv(string(data)); perr != nil {
 		// USER-FACING
-		return res, fmt.Errorf("the freshly written .env does not parse: %v", perr)
+		return res, fmt.Errorf(".env does not parse: %v", perr)
 	} else if probs := w.Problems(); len(probs) > 0 {
 		// USER-FACING
-		return res, fmt.Errorf("the freshly written .env failed validation: %s", strings.Join(probs, "; "))
+		return res, fmt.Errorf(".env failed validation: %s", strings.Join(probs, "; "))
 	}
 
 	if err := EnsureEnvIgnored(composeDir, out); err != nil {
@@ -278,8 +278,6 @@ func collect(o Options, out io.Writer, pr *prompter) (collected, error) {
 	var c collected
 	c.env = Env{}
 
-	// USER-FACING
-	fmt.Fprintln(out, "bitbeard setup — configuration and first boot")
 	// USER-FACING
 	fmt.Fprintf(out, "The stack lives in %s. I will ask for every required setting, write them to .env there, then boot the mandatory Subsystems.\n", o.StackDir)
 	// USER-FACING
@@ -600,7 +598,7 @@ func boot(o Options, composeDir string, out io.Writer, res *Result, e Env) error
 	// USER-FACING
 	fmt.Fprintf(out, "Booting the stack: docker compose up -d in %s.\n", composeDir)
 	// USER-FACING
-	fmt.Fprintln(out, "First boot builds the api, manager and webui images and pulls the rest — this can take several minutes.")
+	fmt.Fprintln(out, "This can take several minutes.")
 	if err := comp.Up(composeDir); err != nil {
 		// USER-FACING
 		return fmt.Errorf("docker compose up failed: %v", err)
@@ -656,12 +654,12 @@ func boot(o Options, composeDir string, out io.Writer, res *Result, e Env) error
 		// Subsystem boots unclaimed and is claimed by hand at the URL
 		// below; do not "optimize" this into a PLEX_CLAIM prompt.
 		// USER-FACING
-		fmt.Fprintln(out, "  Plex (Media Server): http://localhost:32400/web — sign in and claim this server there (no claim token was asked for, on purpose)")
+		fmt.Fprintln(out, "  Plex (Media Server): http://localhost:32400/web — sign in and claim this server there.")
 	}
 	if hasProfile(profiles, profileBot) {
 		if e["DISCORD_ANNOUNCE_CHANNEL_ID"] == "" {
 			// USER-FACING
-			fmt.Fprintln(out, "  Bot: running without announcements (DISCORD_ANNOUNCE_CHANNEL_ID is not set — add a channel by rerunning `bitbeard setup` if you want finished Downloads announced)")
+			fmt.Fprintln(out, "  Bot: running")
 		} else {
 			// USER-FACING
 			fmt.Fprintln(out, "  Bot: running; it announces finished Downloads in DISCORD_ANNOUNCE_CHANNEL_ID (invite it to your server if it has not joined yet)")

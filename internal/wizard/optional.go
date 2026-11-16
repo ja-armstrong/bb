@@ -315,11 +315,11 @@ func (p *prompter) askMediaServer(explanation string) (string, error) {
 	}
 	options := []choice{
 		// USER-FACING
-		{profileJellyfin, "Jellyfin — recommended (free, no account needed; its web UI creates your admin account on first open)"},
+		{profileJellyfin, "Jellyfin"},
 		// USER-FACING
-		{profilePlex, "Plex (no token asked for; claim the server in its web UI after boot — the wizard prints the link)"},
+		{profilePlex, "Plex"},
 		// USER-FACING
-		{"", "Skip — boot without a Media Server (enable one later by rerunning `bitbeard setup`)"},
+		{"", "Skip (enable one later by rerunning `bitbeard setup`)"},
 	}
 	for i, o := range options {
 		// USER-FACING
@@ -327,7 +327,7 @@ func (p *prompter) askMediaServer(explanation string) (string, error) {
 	}
 	for {
 		// USER-FACING
-		p.printf("Media Server (number, or jellyfin/plex/skip; empty = skip): ")
+		p.printf("Media Server (empty = skip): ")
 		line, err := p.readLine()
 		if err != nil {
 			return "", err

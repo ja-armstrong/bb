@@ -329,7 +329,7 @@ def test_progress_lists_the_actors_in_flight_downloads(api, transport):
     assert call["url"] == "http://api.test/media"
     assert call["headers"][DISCORD_ID_HEADER] == "123456789"
     content, view = message.channel.sent[0]
-    assert content.startswith("In-flight Downloads:")
+    assert content.startswith("Downloads:")
     assert "Movie A — 42.00% (ETA 3m)" in content
     # Completed rows are not progress.
     assert "Movie B" not in content
@@ -343,7 +343,7 @@ def test_progress_with_nothing_in_flight_says_so(api, transport):
 
     asyncio.run(discord_front.show_progress(message, api))
 
-    assert message.channel.sent == [("You have no In-flight Downloads.", None)]
+    assert message.channel.sent == [("You have no downloads.", None)]
 
 
 # --- Cancel ------------------------------------------------------------------
@@ -358,7 +358,7 @@ def test_cancel_offers_the_actors_in_flight_downloads_and_cancels_the_pick(
     asyncio.run(discord_front.show_cancel(message, api))
 
     content, view = message.channel.sent[0]
-    assert content == "Which Download should be cancelled?"
+    assert content == "Which download should be cancelled?"
     assert isinstance(view, CancelSelectView)
     # Only the In-flight Download is offered — and nothing was cancelled
     # merely by opening the menu.
@@ -384,7 +384,7 @@ def test_cancel_with_nothing_in_flight_says_so(api, transport):
     asyncio.run(discord_front.show_cancel(message, api))
 
     assert message.channel.sent == [
-        ("You have no In-flight Downloads to cancel.", None)
+        ("You have no downloads to cancel.", None)
     ]
 
 

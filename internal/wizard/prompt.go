@@ -40,7 +40,7 @@ func (p *prompter) readLine() (string, error) {
 			return "", err
 		}
 		// USER-FACING
-		return "", fmt.Errorf("input ended before the wizard finished; nothing more was asked and nothing was changed")
+		return "", fmt.Errorf("input ended before the wizard finished")
 	}
 	return strings.TrimSpace(p.sc.Text()), nil
 }

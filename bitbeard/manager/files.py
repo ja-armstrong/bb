@@ -46,7 +46,7 @@ def _validate_relative(relative: str) -> list[str]:
     if "\x00" in relative:
         raise OutsideMediaRootError(
             # USER-FACING
-            f"{relative!r} escapes the Media Root."
+            f"{relative!r} is outside the media root."
         )
     parts = [
         component
@@ -55,11 +55,11 @@ def _validate_relative(relative: str) -> list[str]:
     ]
     if relative.startswith(("/", "\\")):
         raise OutsideMediaRootError(
-            f"{relative!r} escapes the Media Root."
+            f"{relative!r} is outside the media root."
         )
     if ".." in parts:
         raise OutsideMediaRootError(
-            f"{relative!r} escapes the Media Root."
+            f"{relative!r} is outside the media root."
         )
     return parts
 
@@ -76,7 +76,7 @@ def validate_entry_name(name: str) -> str:
     ):
         raise InvalidPathError(
             # USER-FACING
-            f"{name!r} cannot name a file or directory on the Media Root."
+            f"{name!r} cannot name a file or directory on the media root."
         )
     return cleaned
 
@@ -263,7 +263,7 @@ class FileManager:
         resolved = os.path.realpath(absolute)
         if resolved != root and not resolved.startswith(root + os.sep):
             raise OutsideMediaRootError(
-                f"{relative!r} escapes the Media Root."
+                f"{relative!r} is outside the media root."
             )
         return self._normalize(relative), absolute
 
@@ -275,13 +275,13 @@ class FileManager:
         if resolved != root and not resolved.startswith(root + os.sep):
             raise OutsideMediaRootError(
                 # USER-FACING
-                f"{name!r} escapes the Media Root."
+                f"{name!r} is outside the media root."
             )
         try:
             normalized = os.path.relpath(absolute, self._base_download_dir)
         except ValueError:  # different drive (Windows)
             raise OutsideMediaRootError(
-                f"{name!r} escapes the Media Root."
+                f"{name!r} is outside the media root."
             ) from None
         return normalized.replace(os.sep, "/"), absolute
 
@@ -323,8 +323,8 @@ class FileManager:
             ):
                 raise ProtectedPathError(
                     # USER-FACING
-                    f"{normalized!r} is inside an Active Torrent's save "
-                    "path; its paths are Protected — cancel the torrent "
+                    f"{normalized!r} is inside an active torrent's save "
+                    "path; its paths are protected — cancel the torrent "
                     "first."
                 )
 
@@ -339,8 +339,8 @@ class FileManager:
             ):
                 raise ProtectedPathError(
                     # USER-FACING
-                    "The target is inside an Active Torrent's save path; "
-                    "its paths are Protected."
+                    "The target is inside an active torrent's save path; "
+                    "its paths are protected."
                 )
 
     def _refuse_taken(self, target_absolute: str) -> None:
@@ -348,7 +348,7 @@ class FileManager:
         if self._disk.exists(target_absolute):
             raise PathTakenError(
                 # USER-FACING
-                f"{target_absolute} already exists on the Media Root."
+                f"{target_absolute} already exists on the media root."
             )
         record = db.get_download_by_save_path(
             self._db_path, target_absolute
@@ -357,7 +357,7 @@ class FileManager:
             raise PathTakenError(
                 # USER-FACING
                 f"{target_absolute} is already the save path of another "
-                "Download."
+                "download."
             )
 
     # --- Download-record bookkeeping ------------------------------------------

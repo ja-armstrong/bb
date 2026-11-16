@@ -268,7 +268,7 @@ func TestRunEnvGuardrails(t *testing.T) {
 	}
 	res, _ := runDoctor(t, stack, comp, prober, runner)
 	assertPass(t, res, ".env")
-	assertFail(t, res, ".env guardrails", "SERVICE_TOKEN still carries its change-me placeholder", "bitbeard setup")
+	assertFail(t, res, ".env guardrails", "Change SERVICE_TOKEN", "bitbeard setup")
 	assertFail(t, res, ".env guardrails", "JACKETT_API_KEY", "")
 	// The empty required key must also be named.
 	c := findCheck(t, res, ".env guardrails")

@@ -46,7 +46,7 @@ add_path_line() {
   rc_file="$1"
   if grep -qF '.local/bin' "${rc_file}" 2>/dev/null; then
     # USER-FACING
-    say "PATH entry already present in ${rc_file}; nothing changed."
+    say "PATH entry already present in ${rc_file}"
     return 1
   fi
   mkdir -p "$(dirname "${rc_file}")"
@@ -133,13 +133,11 @@ case ":${PATH}:" in
 
       if [ "${changed}" -eq 1 ]; then
         # USER-FACING
-        if ask_tty "Run bitbeard setup in a fresh shell now? [y/N]"; then
+        if ask_tty "Run bitbeard setup now? [y/N]"; then
           # The -c shell exits when setup finishes, returning control to the
           # operator's original shell. PATH is exported explicitly because
           # e.g. zsh -l -c does not source .zshrc; do not rely on rc files.
           rm -rf "${tmpdir}"
-          # USER-FACING
-          say "Running bitbeard setup in a fresh login shell. When setup finishes the shell exits and you land back in your original session — nothing is nested."
           if [ -n "${SHELL:-}" ]; then
             exec "${SHELL}" -l -c 'export PATH="$HOME/.local/bin:$PATH"; bitbeard setup'
           else
@@ -147,10 +145,8 @@ case ":${PATH}:" in
           fi
         fi
         # USER-FACING
-        if ask_tty "Drop into a fresh login shell now? [y/N]"; then
+        if ask_tty "Drop into a new shell now? [y/N]"; then
           rm -rf "${tmpdir}"
-          # USER-FACING
-          say "Starting a fresh login shell (nested inside this one; exiting it returns here)..."
           if [ -n "${SHELL:-}" ]; then
             exec "${SHELL}" -l
           else

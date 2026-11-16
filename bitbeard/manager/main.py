@@ -136,7 +136,7 @@ def validate_download_name(name: str) -> str:
         raise HTTPException(
             status_code=400,
             # USER-FACING
-            detail="That name cannot be used for a Download.",
+            detail="That name cannot be used for a download.",
         )
     return cleaned
 
@@ -272,11 +272,11 @@ def create_app(
         row = db.get_download(config.db_path, download_id)
         if row is None:
             # USER-FACING
-            raise HTTPException(status_code=404, detail="No such Download.")
+            raise HTTPException(status_code=404, detail="No such download.")
         if account_id is None and discord_name is None:
             raise HTTPException(
                 # USER-FACING
-                status_code=403, detail="No trusted Actor on the request."
+                status_code=403, detail="No trusted actor on the request."
             )
         if account_id is not None:
             owner_mismatch = row["account"] != account_id
@@ -286,7 +286,7 @@ def create_app(
             raise HTTPException(
                 status_code=403,
                 # USER-FACING
-                detail="This Download belongs to another Actor.",
+                detail="This download belongs to another Actor.",
             )
         return row
 
@@ -316,7 +316,7 @@ def create_app(
         """
         if x_bitbeard_account_id is None and x_bitbeard_discord is None:
             raise HTTPException(
-                status_code=403, detail="No trusted Actor on the request."
+                status_code=403, detail="No trusted actor on the request."
             )
         downloads = app.state.quota_ledger.list_downloads(
             account_id=x_bitbeard_account_id,
@@ -343,7 +343,7 @@ def create_app(
         with media_guards():
             deleted = app.state.quota_ledger.delete_download(download_id)
         if deleted is None:
-            raise HTTPException(status_code=404, detail="No such Download.")
+            raise HTTPException(status_code=404, detail="No such download.")
         return {"deleted": deleted["id"], "name": deleted["name"]}
 
     @app.post("/media/{download_id}/rename", dependencies=service_auth)
@@ -363,7 +363,7 @@ def create_app(
         with media_guards():
             updated = app.state.quota_ledger.rename_download(download_id, name)
         if updated is None:
-            raise HTTPException(status_code=404, detail="No such Download.")
+            raise HTTPException(status_code=404, detail="No such download.")
         return {"renamed": updated["id"], "name": updated["name"]}
 
     @app.post("/media/{download_id}/move", dependencies=service_auth)
@@ -396,7 +396,7 @@ def create_app(
                 download_id, request.category
             )
         if updated is None:
-            raise HTTPException(status_code=404, detail="No such Download.")
+            raise HTTPException(status_code=404, detail="No such download.")
         return {
             "moved": updated["id"],
             "category": updated["category"],
@@ -426,7 +426,7 @@ def create_app(
             raise HTTPException(
                 status_code=409,
                 # USER-FACING
-                detail="That Download is not In-flight anymore.",
+                detail="That download is not in progress anymore.",
             )
         app.state.quota_ledger.cancel(download_id)
         return {"cancelled": cancelled}

@@ -160,7 +160,7 @@ class SearchResultsView(View):
 
         await interaction.response.send_message(
             # USER-FACING
-            "Pick a Category:",
+            "Pick a category:",
             view=CategorySelectView(result["magnet_link"], submit_bound),
         )
 
@@ -191,7 +191,7 @@ class CancelSelectView(View):
         super().__init__(timeout=300)
         self.cancel = cancel
         # USER-FACING
-        self._select = Select(placeholder="Cancel which Download?")
+        self._select = Select(placeholder="Cancel which download?")
         for download in downloads:
             self._select.add_option(
                 label=(

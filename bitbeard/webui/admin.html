@@ -61,13 +61,13 @@
                             <!-- USER-FACING -->
                             <label for="filter-actor">Actor:</label>
                             <!-- USER-FACING -->
-                            <input type="text" id="filter-actor" placeholder="e.g. admin or discord:name">
+                            <input type="text" id="filter-actor">
                         </div>
                         <div>
                             <!-- USER-FACING -->
                             <label for="filter-action">Action:</label>
                             <!-- USER-FACING -->
-                            <input type="text" id="filter-action" placeholder="e.g. search, login">
+                            <input type="text" id="filter-action">
                         </div>
                         <div>
                             <!-- USER-FACING -->
@@ -238,7 +238,7 @@
                             <!-- USER-FACING -->
                             <label for="vpn-provider">Provider:</label>
                             <!-- USER-FACING -->
-                            <input type="text" id="vpn-provider" placeholder="e.g. nordvpn">
+                            <input type="text" id="vpn-provider">
                         </div>
                         <div>
                             <!-- USER-FACING -->
@@ -249,7 +249,7 @@
                             <!-- USER-FACING -->
                             <label for="vpn-password">OpenVPN password:</label>
                             <!-- USER-FACING -->
-                            <input type="password" id="vpn-password" autocomplete="new-password" placeholder="(unchanged)">
+                            <input type="password" id="vpn-password" autocomplete="new-password">
                         </div>
                         <div>
                             <!-- USER-FACING -->
@@ -728,10 +728,7 @@
                 const restart = await fetch(`${API_BASE}/admin/services/gluetun/restart`, { method: "POST" });
                 if (handleAuthFailure(restart)) return;
                 const restartData = await restart.json().catch(() => ({}));
-                if (restart.ok) {
-                    <!-- USER-FACING -->
-                    flash(msgId, "VPN settings saved; gluetun restarted.");
-                } else {
+                if (!restart.ok) {
                     <!-- USER-FACING -->
                     flash(msgId, restartData.detail || "Settings saved, but the gluetun restart was refused.", true);
                 }

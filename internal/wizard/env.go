@@ -191,7 +191,7 @@ func (e Env) Problems() []string {
 			probs = append(probs, fmt.Sprintf("%s is empty", k))
 		case IsChangeMe(v):
 			// USER-FACING
-			probs = append(probs, fmt.Sprintf("%s still carries its change-me placeholder; set a real value", k))
+			probs = append(probs, fmt.Sprintf("Change %s", k))
 		}
 	}
 
@@ -218,7 +218,7 @@ func (e Env) Problems() []string {
 				probs = append(probs, fmt.Sprintf("%s is empty; it is required unless VPN_PROVIDER=%s", k, customProvider))
 			case IsChangeMe(v):
 				// USER-FACING
-				probs = append(probs, fmt.Sprintf("%s still carries its change-me placeholder; set a real value", k))
+				probs = append(probs, fmt.Sprintf("Change %s", k))
 			}
 		}
 	}
@@ -299,7 +299,7 @@ func GuardrailProblems(e Env) []string {
 			probs = append(probs, fmt.Sprintf("%s is empty", k))
 		case IsChangeMe(v):
 			// USER-FACING
-			probs = append(probs, fmt.Sprintf("%s still carries its change-me placeholder; set a real value", k))
+			probs = append(probs, fmt.Sprintf("Change %s", k))
 		}
 	}
 
@@ -312,7 +312,7 @@ func GuardrailProblems(e Env) []string {
 	for _, k := range keys {
 		if !required[k] && IsChangeMe(e[k]) {
 			// USER-FACING
-			probs = append(probs, fmt.Sprintf("%s still carries its change-me placeholder; set a real value", k))
+			probs = append(probs, fmt.Sprintf("Change %s", k))
 		}
 	}
 	return probs

@@ -521,7 +521,7 @@ def test_disable_and_enable_are_refused_for_mandatory_subsystems(tmp_path):
             enable = client.post(f"/admin/services/{name}/enable")
             assert disable.status_code == 400, name
             assert enable.status_code == 400, name
-            assert "Optional Subsystem" in disable.json()["detail"]
+            assert "optional subsystem" in disable.json()["detail"]
 
     assert fake.containers._containers[0].calls == []
     assert _subsystem_rows(config) == []
