@@ -15,6 +15,12 @@ DEFAULT_COMPOSE_PROJECT = "bitbeard"
 # Where the compose file mounts the host's ./openvpn — the VPN settings
 # the Admin Panel writes live there (api.vpn).
 DEFAULT_OPENVPN_DIR = "/openvpn"
+# The Jellyfin server's default URL (ticket #31): how the api container
+# reaches the Jellyfin Subsystem's host-published 8096, through the host
+# gateway the compose api service carries as an extra_host. The wizard
+# and .env.example document the same value; this constant is the Python
+# side's single home for it.
+DEFAULT_JELLYFIN_URL = "http://host.docker.internal:8096"
 GIB = 1024 ** 3
 
 
@@ -32,11 +38,22 @@ class Config:
     #: The VPN provider the compose .env seeded; the Admin Panel's written
     #: settings (openvpn/vpn.env) take precedence once they exist.
     vpn_provider: str = ""
+    #: The optional Jellyfin provisioning integration (ticket #31): both
+    #: keys together turn it on, the token alone decides — the URL always
+    #: has a documented default.
+    jellyfin_url: str = DEFAULT_JELLYFIN_URL
+    jellyfin_api_token: str = ""
 
     @property
     def default_quota_bytes(self) -> int:
         """The global Storage Quota default, in bytes."""
         return int(self.default_quota_gb * GIB)
+
+    @property
+    def jellyfin_enabled(self) -> bool:
+        """Whether the Jellyfin provisioning integration is on: both
+        ``JELLYFIN_URL`` and ``JELLYFIN_API_TOKEN`` are set."""
+        return bool(self.jellyfin_url and self.jellyfin_api_token)
 
 
 def load_config() -> Config:
@@ -55,4 +72,6 @@ def load_config() -> Config:
         ),
         openvpn_dir=env("OPENVPN_DIR", default=DEFAULT_OPENVPN_DIR),
         vpn_provider=env("VPN_PROVIDER", default=""),
+        jellyfin_url=env("JELLYFIN_URL", default=DEFAULT_JELLYFIN_URL),
+        jellyfin_api_token=env("JELLYFIN_API_TOKEN", default=""),
     )

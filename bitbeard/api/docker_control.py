@@ -25,6 +25,7 @@ import-safety rule ``manager_proxy`` keeps for ``requests``.
 
 import logging
 import os
+import re
 import socket
 from typing import Any, Callable
 
@@ -67,10 +68,12 @@ def media_server() -> str | None:
     disagree with what is actually running. Only one flavor belongs in a
     stack (the Media Server is chosen once at Bootstrap); if both are
     listed, jellyfin wins, the same order the guidance names them in.
+    The value is split on commas and whitespace alike: the wizard writes
+    it space-separated, hand-edits and the panel comma-separated.
     """
     profiles = {
         name.strip()
-        for name in os.environ.get("COMPOSE_PROFILES", "").split(",")
+        for name in re.split(r"[,\s]+", os.environ.get("COMPOSE_PROFILES", ""))
         if name.strip()
     }
     for candidate in MEDIA_SERVER_PORTS:

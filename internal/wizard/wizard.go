@@ -35,6 +35,9 @@ type Options struct {
 	Rand io.Reader
 	// Discord live-checks bot tokens; nil means the real Discord API.
 	Discord DiscordChecker
+	// Jellyfin live-checks API tokens against the Media Server; nil means
+	// the real Jellyfin API (ticket #31).
+	Jellyfin JellyfinChecker
 }
 
 // Result reports what the configuration and boot stage did.
@@ -69,6 +72,15 @@ func (o Options) discord() DiscordChecker {
 		return o.Discord
 	}
 	return DiscordAPI{}
+}
+
+// jellyfin returns the configured JellyfinChecker, defaulting to the real
+// Jellyfin API.
+func (o Options) jellyfin() JellyfinChecker {
+	if o.Jellyfin != nil {
+		return o.Jellyfin
+	}
+	return JellyfinAPI{}
 }
 
 // Run executes the configuration and boot stage against the cloned stack at
@@ -112,7 +124,7 @@ func Run(o Options) (Result, error) {
 			if err != nil {
 				return res, err
 			}
-			stage, err := collectOptionalRerun(pr, out, e, o.discord())
+			stage, err := collectOptionalRerun(pr, out, e, o.discord(), o.jellyfin())
 			if err != nil {
 				return res, err
 			}
@@ -129,6 +141,7 @@ func Run(o Options) (Result, error) {
 				for _, k := range []string{
 					"VPN_PROVIDER", "OPENVPN_USER", "OPENVPN_PASSWORD",
 					customConfigEnvKey, serverCountriesEnvKey,
+					"JELLYFIN_URL", "JELLYFIN_API_TOKEN",
 					"DISCORD_BOT_TOKEN", "DISCORD_ANNOUNCE_CHANNEL_ID",
 				} {
 					if v, ok := vpnStage.env[k]; ok {
@@ -369,7 +382,7 @@ func collect(o Options, out io.Writer, pr *prompter) (collected, error) {
 	c.env["BASE_DOWNLOAD_DIR"] = baseDir
 
 	// Optional Subsystems: the Media Server choice and the Bot keys.
-	stage, err := collectOptionalFresh(pr, o.discord())
+	stage, err := collectOptionalFresh(pr, o.discord(), o.jellyfin())
 	if err != nil {
 		return c, err
 	}

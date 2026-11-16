@@ -31,7 +31,7 @@ import sqlite3
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Literal
+from typing import Callable, Literal
 
 from fastapi import (
     Cookie,
@@ -55,7 +55,13 @@ from .docker_control import (
     DockerControl,
     DockerUnavailable,
     OPTIONAL_SUBSYSTEMS,
+    media_server,
     subsystem_ports,
+)
+from .jellyfin import (
+    JellyfinClient,
+    JellyfinProvisioningError,
+    generate_password,
 )
 from .manager_proxy import ManagerProxy, ManagerUnavailable, Transport
 from .sessions import SessionStore
@@ -305,9 +311,12 @@ def create_app(
     proxy_transport: Transport | None = None,
     docker_control: DockerControl | None = None,
     vpn_control: VpnControl | None = None,
+    jellyfin_client: JellyfinClient | None = None,
+    jellyfin_password: Callable[[], str] | None = None,
 ) -> FastAPI:
     """Build the API app. ``config``, the manager transport, the docker
-    control and the VPN control are injectable for tests."""
+    control, the VPN control, the Jellyfin client and the Jellyfin
+    password generator are injectable for tests."""
     config = config or load_config()
 
     @asynccontextmanager
@@ -450,6 +459,45 @@ def create_app(
         config.openvpn_dir, provider_fallback=config.vpn_provider
     )
     app.state.vpn_control = vpn
+
+    # --- Jellyfin provisioning (ticket #31) ----------------------------------
+    #
+    # The optional half of the approve flow: when the integration is on
+    # (JELLYFIN_URL + JELLYFIN_API_TOKEN set) and the Media Server is
+    # Jellyfin, approving a Registration Request also creates the matching
+    # Jellyfin user. The client and the password generator are injectable
+    # for tests; the generated password never enters a log, a response or
+    # the ledger.
+
+    new_jellyfin_password = jellyfin_password or generate_password
+
+    def jellyfin_client_for() -> JellyfinClient:
+        """The client the provisioning calls go through: the injected
+        one in tests, else the real one built from the config."""
+        return jellyfin_client or JellyfinClient(
+            config.jellyfin_url, config.jellyfin_api_token
+        )
+
+    def provision_jellyfin_user(username: str) -> dict:
+        """Create the matching Jellyfin user for a newly approved Account.
+
+        Never fails the approval: every outcome — succeeded, failed (with
+        the reason) — comes back as the dict the Audit Ledger entry and
+        the admin flash carry. The generated password is handed to the
+        client and forgotten: it is not returned, logged or stored.
+        """
+        password = new_jellyfin_password()
+        try:
+            jellyfin_client_for().create_user(username, password)
+        except JellyfinProvisioningError as exc:
+            logger.warning(
+                "Jellyfin provisioning for '%s' failed: %s", username, exc
+            )
+            return {"status": "failed", "reason": str(exc)}
+        logger.info(
+            "Jellyfin user '%s' created for the approved Account.", username
+        )
+        return {"status": "succeeded"}
 
     def docker_or_502(action):
         """Run one docker action or report the socket as broken.
@@ -1374,6 +1422,9 @@ def create_app(
         (or a newer pending request) may have taken it since. On conflict
         the approval is refused with the situation named plainly, so the
         Admin can deny the stale request instead; nothing is written.
+        When the Jellyfin provisioning integration is on and the Media
+        Server is Jellyfin, approving also creates the matching Jellyfin
+        user — that outcome is recorded but can never fail the approval.
         """
         row = db.get_registration_request(config.db_path, request_id)
         if row is None:
@@ -1421,6 +1472,15 @@ def create_app(
                 ),
             )
         db.delete_registration_request(config.db_path, request_id)
+
+        # Optional Jellyfin provisioning (ticket #31): on only when both
+        # JELLYFIN_URL and JELLYFIN_API_TOKEN are set and the Media Server
+        # is Jellyfin. Never fails the approval — the outcome rides in the
+        # ledger entry and, on failure, the admin flash.
+        provisioning = {"status": "off"}
+        if config.jellyfin_enabled and media_server() == "jellyfin":
+            provisioning = provision_jellyfin_user(username)
+
         db.record_audit(
             config.db_path,
             actor=caller.username,
@@ -1430,6 +1490,7 @@ def create_app(
                 "account_id": account_id,
                 "username": username,
                 "source_ip": row["source_ip"],
+                "jellyfin_provisioning": provisioning,
             },
         )
         logger.info(
@@ -1437,14 +1498,29 @@ def create_app(
             "created.",
             request_id, username, caller.username, account_id,
         )
-        return {
+        message = (
             # USER-FACING
-            "message": (
-                f"Approved. '{username}' can now log in with the "
-                "credentials they chose."
-            ),
+            f"Approved. '{username}' can now log in with the "
+            "credentials they chose."
+        )
+        if provisioning["status"] == "failed":
+            message += (
+                # USER-FACING
+                f" Warning: the matching Jellyfin user was NOT created "
+                f"({provisioning['reason']}). The Account works, but the "
+                "user will need to be created on the Media Server by hand."
+            )
+        elif provisioning["status"] == "succeeded":
+            message += (
+                # USER-FACING
+                " A matching Jellyfin user was created for them; they set "
+                "their own Media Server password from the Webui later."
+            )
+        return {
+            "message": message,
             "account_id": account_id,
             "username": username,
+            "jellyfin_provisioning": provisioning,
         }
 
     @app.post("/admin/registrations/{request_id}/deny")

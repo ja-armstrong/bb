@@ -52,7 +52,9 @@ _Avoid_: non-critical service
 **Media Server**:
 The Optional Subsystem that serves the Media Root to viewers outside the stack. Plex
 or Jellyfin, chosen once at Bootstrap. No Frontend or service talks to it; it reads
-the Media Root directly.
+the Media Root directly — except the API's one optional provisioning call, which
+creates the matching Jellyfin user when a Registration Request is approved (off
+unless configured).
 _Avoid_: plex (when naming the role), jellyfin (when naming the role)
 
 ### Bootstrap
