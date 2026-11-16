@@ -33,6 +33,7 @@ class CompletionNotifier:
             )
             return
         message = (
+            # USER-FACING
             f"{torrent_name} has been added to Bitbeard under {category}."
         )
         await channel.send(message)

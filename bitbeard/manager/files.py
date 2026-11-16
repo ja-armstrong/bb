@@ -45,6 +45,7 @@ def _validate_relative(relative: str) -> list[str]:
     """
     if "\x00" in relative:
         raise OutsideMediaRootError(
+            # USER-FACING
             f"{relative!r} escapes the Media Root."
         )
     parts = [
@@ -74,6 +75,7 @@ def validate_entry_name(name: str) -> str:
         or "\x00" in cleaned
     ):
         raise InvalidPathError(
+            # USER-FACING
             f"{name!r} cannot name a file or directory on the Media Root."
         )
     return cleaned
@@ -133,6 +135,7 @@ class RealDisk(Disk):
         elif os.path.exists(path):
             os.remove(path)
         else:
+            # USER-FACING
             raise FileNotFoundError(f"No file or directory at {path}.")
 
     def rename(self, source: str, target: str) -> None:
@@ -175,6 +178,7 @@ class FileManager:
         """
         _, absolute = self._resolve(relative)
         if not self._disk.is_dir(absolute):
+            # USER-FACING
             raise FileNotFoundError(f"No file or directory at {relative!r}.")
         entries = []
         for name in self._disk.entries(absolute):
@@ -233,6 +237,7 @@ class FileManager:
         normalized, absolute = self._resolve(relative)
         _, target_parent = self._resolve(target_dir)
         if not self._disk.is_dir(target_parent):
+            # USER-FACING
             raise FileNotFoundError(f"No file or directory at {target_dir!r}.")
         target = os.path.join(target_parent, os.path.basename(absolute))
         if os.path.normpath(absolute) == os.path.normpath(target):
@@ -269,6 +274,7 @@ class FileManager:
         resolved = os.path.realpath(absolute)
         if resolved != root and not resolved.startswith(root + os.sep):
             raise OutsideMediaRootError(
+                # USER-FACING
                 f"{name!r} escapes the Media Root."
             )
         try:
@@ -316,6 +322,7 @@ class FileManager:
                 or save_path.startswith(candidate + os.sep)
             ):
                 raise ProtectedPathError(
+                    # USER-FACING
                     f"{normalized!r} is inside an Active Torrent's save "
                     "path; its paths are Protected — cancel the torrent "
                     "first."
@@ -331,6 +338,7 @@ class FileManager:
                 save_path + os.sep
             ):
                 raise ProtectedPathError(
+                    # USER-FACING
                     "The target is inside an Active Torrent's save path; "
                     "its paths are Protected."
                 )
@@ -339,6 +347,7 @@ class FileManager:
         """The target must be free on disk and in the records."""
         if self._disk.exists(target_absolute):
             raise PathTakenError(
+                # USER-FACING
                 f"{target_absolute} already exists on the Media Root."
             )
         record = db.get_download_by_save_path(
@@ -346,6 +355,7 @@ class FileManager:
         )
         if record is not None:
             raise PathTakenError(
+                # USER-FACING
                 f"{target_absolute} is already the save path of another "
                 "Download."
             )

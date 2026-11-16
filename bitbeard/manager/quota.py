@@ -272,6 +272,7 @@ class QuotaLedger:
         self._refuse_active_torrent(row["save_path"])
         if row["status"] != "completed":
             raise NotCompletedError(
+                # USER-FACING
                 f"Download {download_id} is not completed yet; "
                 "cancel it instead of renaming it."
             )
@@ -296,6 +297,7 @@ class QuotaLedger:
         self._refuse_active_torrent(row["save_path"])
         if row["status"] != "completed":
             raise NotCompletedError(
+                # USER-FACING
                 f"Download {download_id} is not completed yet; "
                 "cancel it instead of moving it."
             )
@@ -416,6 +418,7 @@ class QuotaLedger:
         )
         if torrent is not None:
             raise ActiveTorrentError(
+                # USER-FACING
                 f"{save_path} belongs to an Active Torrent; its paths are "
                 "Protected — cancel the torrent first."
             )
@@ -435,9 +438,11 @@ class QuotaLedger:
         occupant = db.get_download_by_save_path(self._db_path, target)
         if occupant is not None and occupant["id"] != row["id"]:
             raise PathTakenError(
+                # USER-FACING
                 f"{target} is already the save path of another Download."
             )
         if os.path.exists(target):
+            # USER-FACING
             raise PathTakenError(f"{target} already exists on the Media Root.")
         if not os.path.exists(source):
             # The files are already gone (out-of-band change); the record
@@ -453,6 +458,7 @@ class QuotaLedger:
         target = os.path.realpath(save_path)
         if target != root and not target.startswith(root + os.sep):
             raise OutsideMediaRootError(
+                # USER-FACING
                 f"{save_path} escapes the Media Root."
             )
 
