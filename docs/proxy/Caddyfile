@@ -1,0 +1,34 @@
+# Reference reverse-proxy config for a public Bitbeard deployment
+# (docs/proxy.md): the Webui on its name, Jellyfin on its subdomain,
+# automatic TLS on both. Copy it to /etc/caddy/Caddyfile, edit the two
+# names and the two upstream addresses for your host, and reload.
+
+# The XFF contract (docs/proxy.md): this Caddy is the FIRST server the
+# client touches, so it OVERWRITES X-Forwarded-For with the real client
+# address. Caddy does this by default: incoming X-Forwarded-For values
+# from clients are ignored (untrusted) unless trusted_proxies says
+# otherwise, so client-supplied fake IPs never survive the edge. Do NOT
+# add a trusted_proxies global option unless another proxy or CDN really
+# sits in front of this Caddy — that is what re-opens the spoofing hole
+# the contract exists to close.
+#
+# Everything BEHIND this Caddy passes the header through verbatim
+# (the Webui's nginx is configured that way), and the API reads the
+# first — and, per the contract, only — entry.
+
+media.example.com {
+	# The Webui's nginx (published on the host as 8081). nginx serves
+	# the static pages and proxies /api/ to the API; Caddy terminates
+	# TLS in front of it.
+	reverse_proxy 127.0.0.1:8081
+}
+
+jellyfin.example.com {
+	# Jellyfin (published on the host as 8096). Dashboard, playback and
+	# the websocket-based activity feed all go through one reverse
+	# proxy: websockets are handled natively, no extra directives.
+	#
+	# If you bind 8096 to localhost so only this proxy serves it, set
+	# JELLYFIN_URL in .env to the public URL instead of the default.
+	reverse_proxy 127.0.0.1:8096
+}

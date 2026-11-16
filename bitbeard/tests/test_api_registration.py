@@ -291,6 +291,28 @@ def test_the_throttle_counts_a_conflict_attempt_too(tmp_path, throttled):
         assert _post(client, username="newcomer", headers=_from("1.1.1.1")).status_code == 429
 
 
+def test_a_single_entry_xff_throttles_and_ledgers_as_that_address(
+    tmp_path, throttled
+):
+    """The contract's normal case (docs/proxy.md): the front proxy's
+    overwrite leaves a single-entry XFF, and the API reads that one
+    entry exactly as it always has — one bucket per address, and the
+    ledger's source IP is the header's value."""
+    config = make_config(tmp_path / "bitbeard.db")
+
+    with TestClient(create_app(config)) as client:
+        assert _post(client, username="crew0", headers=_from("203.0.113.7")).status_code == 200
+        assert _post(client, username="crew1", headers=_from("203.0.113.7")).status_code == 200
+        response = _post(client, username="crew2", headers=_from("203.0.113.7"))
+
+    assert response.status_code == 429
+    # Two accepted submissions, both ledgered under the header's address.
+    rows = _audit_rows(config)
+    assert len(rows) == 2
+    for entry in rows:
+        assert json.loads(entry["details"])["source_ip"] == "203.0.113.7"
+
+
 # --- The boundary: unauthenticated by design --------------------------------
 
 

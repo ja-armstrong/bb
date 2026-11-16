@@ -92,6 +92,20 @@ def test_session_ttl_has_a_default_and_is_configurable(monkeypatch):
     assert load_config().session_ttl_hours == 6.0
 
 
+def test_public_https_defaults_on_and_reads_the_common_spellings(monkeypatch):
+    _set_env(monkeypatch)
+    assert load_config().public_https is True
+
+    _set_env(monkeypatch, PUBLIC_HTTPS="0")
+    assert load_config().public_https is False
+
+    _set_env(monkeypatch, PUBLIC_HTTPS="no")
+    assert load_config().public_https is False
+
+    _set_env(monkeypatch, PUBLIC_HTTPS="1")
+    assert load_config().public_https is True
+
+
 # --- POST /auth/login ---------------------------------------------------
 
 
@@ -112,6 +126,61 @@ def test_valid_login_sets_httponly_session_cookie_and_returns_role(tmp_path):
     assert "path=/" in set_cookie.lower()
     # Browser-side expiry matches the server-side one.
     assert "max-age=86400" in set_cookie.lower()
+
+
+def test_the_default_config_marks_the_session_cookie_secure(tmp_path):
+    """PUBLIC_HTTPS=1 (the default) means the stack is behind the HTTPS
+    proxy, so the login cookie carries the Secure flag."""
+    config = make_config(tmp_path / "bitbeard.db")
+
+    with TestClient(create_app(config)) as client:
+        response = client.post(
+            "/auth/login", json={"username": "admin", "password": "hunter2"}
+        )
+
+    assert response.status_code == 200
+    set_cookie = response.headers["set-cookie"]
+    assert "secure" in set_cookie.lower()
+    # The rest of the cookie's posture is unchanged.
+    assert "httponly" in set_cookie.lower()
+    assert "samesite=lax" in set_cookie.lower()
+
+
+def test_an_observed_https_request_is_secure_even_when_public_https_is_off(
+    tmp_path,
+):
+    """X-Forwarded-Proto: https is the evidence the request really
+    arrived over TLS — exactly where a Secure cookie belongs, whatever
+    PUBLIC_HTTPS says."""
+    config = make_config(tmp_path / "bitbeard.db", public_https=False)
+
+    with TestClient(create_app(config)) as client:
+        response = client.post(
+            "/auth/login",
+            json={"username": "admin", "password": "hunter2"},
+            headers={"X-Forwarded-Proto": "https"},
+        )
+
+    assert response.status_code == 200
+    assert "secure" in response.headers["set-cookie"].lower()
+
+
+def test_public_https_0_loses_the_secure_flag_over_plain_http(tmp_path):
+    """The plain-HTTP escape hatch: browsers refuse to send Secure
+    cookies over plain HTTP, so forcing it there breaks every login
+    silently. No Secure flag."""
+    config = make_config(tmp_path / "bitbeard.db", public_https=False)
+
+    with TestClient(create_app(config)) as client:
+        response = client.post(
+            "/auth/login", json={"username": "admin", "password": "hunter2"}
+        )
+
+    assert response.status_code == 200
+    set_cookie = response.headers["set-cookie"]
+    assert "secure" not in set_cookie.lower()
+    assert "httponly" in set_cookie.lower()
+    assert "samesite=lax" in set_cookie.lower()
 
 
 def test_wrong_password_is_rejected(tmp_path):

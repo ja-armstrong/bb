@@ -244,15 +244,35 @@ class VpnConfigRequest(BaseModel):
 def client_ip(request: Request) -> str:
     """The submitting visitor's address, for the per-IP throttle and ledger.
 
-    The Webui's nginx proxy adds ``X-Forwarded-For``; its first entry is
-    the client the proxy saw, which is what "per IP" means here (the API
-    only ever sees direct sockets from inside the compose network).
+    The XFF contract (docs/proxy.md): the front proxy overwrites
+    ``X-Forwarded-For`` with the client it saw, everything behind it
+    passes the header through verbatim, so its first entry is the real
+    client — which is what "per IP" means here (the API only ever sees
+    direct sockets from inside the compose network).
     Direct callers fall back to the socket address.
     """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+def cookie_is_secure(config: Config, request: Request) -> bool:
+    """Whether the Session cookie should carry the Secure flag.
+
+    ``PUBLIC_HTTPS`` (default 1) says the stack is served behind the
+    HTTPS reverse proxy, so the cookie is always Secure. The
+    ``X-Forwarded-Proto: https`` header is the observed evidence and
+    enables Secure too, whatever ``PUBLIC_HTTPS`` says — a request that
+    really arrived over TLS is exactly where a Secure cookie belongs.
+    ``PUBLIC_HTTPS=0`` without that evidence is the plain-HTTP escape
+    hatch: no Secure flag, because browsers refuse to send Secure
+    cookies over plain HTTP and logins would break silently.
+    """
+    if not config.public_https:
+        forwarded_proto = request.headers.get("x-forwarded-proto", "")
+        return forwarded_proto.split(",")[0].strip().lower() == "https"
+    return True
 
 
 def format_size(size_bytes: int) -> str:
@@ -836,7 +856,7 @@ def create_app(
         return {"status": "ok", "service": "api"}
 
     @app.post("/auth/login")
-    async def login(request: LoginRequest, response: Response):
+    async def login(request: LoginRequest, response: Response, http: Request):
         """Check credentials, issue a Session, and report the Account's Role.
 
         Unknown usernames and wrong passwords get the same response so the
@@ -874,6 +894,7 @@ def create_app(
             httponly=True,
             samesite="lax",
             path="/",
+            secure=cookie_is_secure(config, http),
         )
         db.record_audit(
             config.db_path, actor=account["username"], action="login", details={}
