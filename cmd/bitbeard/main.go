@@ -14,6 +14,7 @@ import (
 
 	"github.com/ja-armstrong/bb/internal/fetch"
 	"github.com/ja-armstrong/bb/internal/prereqs"
+	"github.com/ja-armstrong/bb/internal/wizard"
 )
 
 // Injected at build time via -ldflags "-X main.version=... -X main.commit=...".
@@ -82,7 +83,19 @@ func main() {
 			os.Exit(1)
 		}
 		// Fetch stage of the Bootstrap: clone or reuse the stack repository.
-		if err := fetch.Setup(os.Stdout); err != nil {
+		fetchRes, err := fetch.Setup(os.Stdout)
+		if err != nil {
+			// USER-FACING
+			fmt.Fprintf(os.Stderr, "bitbeard: %v\n", err)
+			os.Exit(1)
+		}
+		// Configuration and boot stage of the Bootstrap: prompt for every
+		// required key, write .env, and bring the mandatory-only stack up.
+		if _, err := wizard.Run(wizard.Options{
+			StackDir: fetchRes.StackPath,
+			In:       os.Stdin,
+			Out:      os.Stdout,
+		}); err != nil {
 			// USER-FACING
 			fmt.Fprintf(os.Stderr, "bitbeard: %v\n", err)
 			os.Exit(1)

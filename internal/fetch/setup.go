@@ -39,15 +39,17 @@ func (GitCLI) RemoteURL(dir string) (string, error) {
 }
 
 // Setup runs the fetch stage end to end, writing progress notes to out. It
-// resolves the per-user locations (clone target and state file) and calls Run.
-func Setup(out io.Writer) error {
+// resolves the per-user locations (clone target and state file) and calls
+// Run. It returns where the stack repository now lives, which the next
+// stage (configuration and boot) works on.
+func Setup(out io.Writer) (Result, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return err
+		return Result{}, err
 	}
 	configDir, err := os.UserConfigDir()
 	if err != nil {
-		return err
+		return Result{}, err
 	}
 	statePath := StatePath(configDir)
 	cfg := Config{Target: DefaultTarget(home)}
@@ -66,7 +68,7 @@ func Setup(out io.Writer) error {
 
 	res, err := Run(cfg, GitCLI{}, statePath)
 	if err != nil {
-		return err
+		return Result{}, err
 	}
 	if res.Cloned {
 		// USER-FACING
@@ -75,5 +77,5 @@ func Setup(out io.Writer) error {
 		// USER-FACING
 		fmt.Fprintf(out, "Using the existing stack repository at %s.\n", res.StackPath)
 	}
-	return nil
+	return res, nil
 }
