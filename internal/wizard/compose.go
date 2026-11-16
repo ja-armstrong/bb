@@ -90,6 +90,29 @@ func parseComposePS(s string) ([]composeContainer, error) {
 	return cs, nil
 }
 
+// ComposeContainer is one entry of `docker compose ps --format json` output.
+type ComposeContainer = composeContainer
+
+// ParseComposePS parses `docker compose ps --format json` output, accepting
+// both JSON-lines and a top-level JSON array. Read-only; shared with the
+// Doctor so the ps handling is not duplicated.
+func ParseComposePS(s string) ([]ComposeContainer, error) {
+	return parseComposePS(s)
+}
+
+// MandatorySubsystemNames returns the mandatory Subsystem container names
+// that must be running: the VPN tunnel, the torrent client, the Indexer
+// service, and the three core services.
+func MandatorySubsystemNames() []string {
+	return append([]string(nil), mandatoryRunning...)
+}
+
+// MandatoryInitSubsystemNames returns the one-shot init containers that must
+// have exited 0 (or be absent, cleaned up after completing successfully).
+func MandatoryInitSubsystemNames() []string {
+	return append([]string(nil), mandatoryExited...)
+}
+
 // verifyMandatoryRunning checks the parsed ps output: every container of
 // mandatoryRunning must be in state "running", and every container of
 // mandatoryExited must have exited 0. It returns the names that are not up
