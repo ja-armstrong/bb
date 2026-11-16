@@ -15,7 +15,21 @@ DEFAULT_COMPOSE_PROJECT = "bitbeard"
 # Where the compose file mounts the host's ./openvpn — the VPN settings
 # the Admin Panel writes live there (api.vpn).
 DEFAULT_OPENVPN_DIR = "/openvpn"
+# The stack is served behind the HTTPS reverse proxy by default, so
+# login Session cookies carry the Secure flag. PUBLIC_HTTPS=0 is the
+# plain-HTTP escape hatch — see docs/proxy.md for the footgun.
+DEFAULT_PUBLIC_HTTPS = True
 GIB = 1024 ** 3
+
+
+def _env_bool(value: str) -> bool:
+    """A tolerant boolean cast: 1/true/yes/on, 0/false/no/off."""
+    lowered = value.strip().lower()
+    if lowered in ("1", "true", "yes", "on"):
+        return True
+    if lowered in ("0", "false", "no", "off"):
+        return False
+    raise ValueError(f"expected a boolean, got {value!r}")
 
 
 @dataclass(frozen=True)
@@ -32,6 +46,9 @@ class Config:
     #: The VPN provider the compose .env seeded; the Admin Panel's written
     #: settings (openvpn/vpn.env) take precedence once they exist.
     vpn_provider: str = ""
+    #: True (the default) while the stack is served behind the HTTPS
+    #: reverse proxy; Session cookies then carry the Secure flag.
+    public_https: bool = DEFAULT_PUBLIC_HTTPS
 
     @property
     def default_quota_bytes(self) -> int:
@@ -55,4 +72,7 @@ def load_config() -> Config:
         ),
         openvpn_dir=env("OPENVPN_DIR", default=DEFAULT_OPENVPN_DIR),
         vpn_provider=env("VPN_PROVIDER", default=""),
+        public_https=env(
+            "PUBLIC_HTTPS", cast=_env_bool, default=DEFAULT_PUBLIC_HTTPS
+        ),
     )
