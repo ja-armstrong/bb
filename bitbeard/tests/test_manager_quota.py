@@ -143,6 +143,49 @@ def make_manager(qbt=None, announcer=None, config=None, tmp_path=None):
     return manager, qbt, announcer, config
 
 
+def test_an_audiobook_submission_lands_under_the_audiobook_subdirectory(
+    tmp_path,
+):
+    # End to end for ticket #27: the ownership record is opened under the
+    # Audiobook Category, the torrent is added into its per-Download
+    # directory beneath the Media Root, and the directory is created.
+    qbt = FakeQbt()
+    config = make_config(tmp_path)
+    ledger = make_ledger(config, qbt=qbt)
+    make_account(config.db_path)
+    manager = DownloadManager(
+        qbt, config, CollectingAnnouncer(), poll_interval=0.01
+    )
+
+    record = ledger.open_download(
+        account_id=None,
+        discord_name="deckhand",
+        title="Some Audiobook",
+        category="Audiobook",
+        size_bytes=0,
+    )
+
+    async def run():
+        task = manager.submit(
+            "magnet:?xt=urn:btih:abc",
+            "Audiobook",
+            actor="discord:deckhand",
+            record=record,
+        )
+        await task
+
+    asyncio.run(run())
+
+    save_path = qbt.add_calls[0]["save_path"]
+    assert save_path == os.path.join(
+        config.base_download_dir, "Audiobook", str(record.id)
+    )
+    row = get_row(config.db_path, record.id)
+    assert row["category"] == "Audiobook"
+    assert row["save_path"] == save_path
+    assert os.path.isdir(save_path)
+
+
 # --- The ownership record ------------------------------------------------
 
 
@@ -172,6 +215,29 @@ def test_open_download_records_the_owning_account(tmp_path):
     # files are deletable and accountable without touching neighbours.
     assert row["save_path"] == os.path.join(
         config.base_download_dir, "Movie", str(record.id)
+    )
+    assert record.save_path == row["save_path"]
+
+
+def test_open_download_places_audiobook_downloads_in_its_subdirectory(
+    tmp_path,
+):
+    config = make_config(tmp_path)
+    ledger = make_ledger(config)
+    make_account(config.db_path)
+
+    record = ledger.open_download(
+        account_id=None,
+        discord_name="deckhand",
+        title="Some Audiobook",
+        category="Audiobook",
+        size_bytes=500,
+    )
+
+    row = get_row(config.db_path, record.id)
+    assert row["category"] == "Audiobook"
+    assert row["save_path"] == os.path.join(
+        config.base_download_dir, "Audiobook", str(record.id)
     )
     assert record.save_path == row["save_path"]
 

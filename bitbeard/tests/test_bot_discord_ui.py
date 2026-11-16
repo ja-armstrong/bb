@@ -104,7 +104,7 @@ def choose(select, value):
     select._values = [value]
 
 
-def test_view_has_exactly_the_three_expected_options():
+def test_view_has_exactly_the_four_expected_options():
     view, _, _ = make_view()
 
     selects = [item for item in view.children if isinstance(item, Select)]
@@ -115,6 +115,7 @@ def test_view_has_exactly_the_three_expected_options():
         ("Movie", "🎬"),
         ("TV Show", "📺"),
         ("Other", "📁"),
+        ("Audiobook", "🎧"),
     ]
 
 

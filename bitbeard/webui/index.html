@@ -76,6 +76,8 @@
                     <option value="TV Show">TV Show</option>
                     <!-- USER-FACING -->
                     <option value="Other">Other</option>
+                    <!-- USER-FACING -->
+                    <option value="Audiobook">Audiobook</option>
                 </select>
                 <!-- USER-FACING -->
                 <button type="submit">Download</button>
@@ -598,7 +600,7 @@
 
         window.moveDownload = function(id) {
             <!-- USER-FACING -->
-            const category = prompt("Move to Category (Movie, TV Show, Other):", "Movie");
+            const category = prompt("Move to Category (Movie, TV Show, Audiobook, Other):", "Movie");
             if (category && category.trim()) {
                 return mediaAction(id, "move", { category: category.trim() });
             }

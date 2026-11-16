@@ -251,6 +251,30 @@ def test_choosing_a_category_submits_the_magnet_through_the_api(api, transport):
     assert call["headers"][DISCORD_NAME_HEADER] == "Salty"
 
 
+def test_choosing_audiobook_submits_the_magnet_through_the_api(
+    api, transport
+):
+    message = FakeMessage("magnet:?xt=urn:btih:abc")
+    asyncio.run(discord_front.submit_magnet(message, api))
+
+    _, view = message.channel.sent[0]
+    choose(select_of(view), "Audiobook")
+    interaction = FakeInteraction()
+    asyncio.run(view.choose_category(interaction))
+
+    call = transport.last
+    assert call["method"] == "POST"
+    assert call["url"] == "http://api.test/download"
+    assert call["json"] == {
+        "magnet_link": "magnet:?xt=urn:btih:abc",
+        "category": "Audiobook",
+        "size_bytes": 0,
+        "title": None,
+    }
+    assert call["headers"][DISCORD_ID_HEADER] == "123456789"
+    assert call["headers"][DISCORD_NAME_HEADER] == "Salty"
+
+
 def test_a_quota_exceeded_submission_is_relayed(api, transport):
     detail = (
         "Quota exceeded: this Download would put you at 60.00 GB of your "

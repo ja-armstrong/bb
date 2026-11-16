@@ -137,6 +137,25 @@ def test_submit_uses_category_subdirectory_and_completes_quickly():
     assert qbt.torrents == []  # completed torrent was deleted
 
 
+def test_submit_places_audiobook_downloads_in_its_subdirectory():
+    manager, qbt, announcer = make_manager()
+
+    async def run():
+        task = manager.submit("magnet:?xt=urn:btih:abc", "Audiobook")
+        await task
+
+    asyncio.run(run())
+
+    assert qbt.add_calls == [
+        {
+            "urls": "magnet:?xt=urn:btih:abc",
+            "save_path": os.path.join("/media/downloads", "Audiobook"),
+        }
+    ]
+    assert announcer.submitted == [("Test Torrent", "Audiobook", None, None)]
+    assert announcer.completed == [("Test Torrent", "Audiobook", None, None)]
+
+
 def test_actor_rides_along_on_the_submitted_and_completed_events():
     manager, _, announcer = make_manager()
 

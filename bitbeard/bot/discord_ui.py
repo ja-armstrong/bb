@@ -24,6 +24,8 @@ CATEGORY_OPTIONS = [
     discord.SelectOption(label="TV Show", emoji="📺"),
     # USER-FACING
     discord.SelectOption(label="Other", emoji="📁"),
+    # USER-FACING
+    discord.SelectOption(label="Audiobook", emoji="🎧"),
 ]
 
 
