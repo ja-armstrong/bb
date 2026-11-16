@@ -145,6 +145,13 @@ func Ensure(r Runner, out io.Writer, osReleasePath string) (Result, error) {
 	return Result{Status: StatusFixed, DockerPresent: true, ComposePresent: true, Installed: missing}, nil
 }
 
+// Detect reports which prerequisites are already present, without changing
+// anything. Check-only: unlike Ensure it never installs anything. The Doctor
+// reuses this for its prerequisite checks.
+func Detect(r Runner) (docker, compose bool) {
+	return detect(r)
+}
+
 // detect reports which prerequisites are already present, without changing
 // anything. Docker Compose may exist as the `docker compose` plugin or the
 // standalone `docker-compose` binary; the standalone one is also checked

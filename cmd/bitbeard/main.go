@@ -2,9 +2,10 @@
 // for the stack. Run it on a fresh machine to prepare the machine (setup),
 // check it (doctor), or update an existing install (update).
 //
-// setup runs the prerequisite stage and then the fetch stage (clone/reuse of
-// the stack repository); doctor and update are stubs for now, their behaviour
-// lands in later tickets.
+// setup runs the prerequisite stage, the fetch stage (clone/reuse of the
+// stack repository), the configuration and boot stage, and finally the
+// doctor as its verification step. update is still a stub; its behaviour
+// lands in a later ticket.
 package main
 
 import (
@@ -12,6 +13,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ja-armstrong/bb/internal/doctor"
 	"github.com/ja-armstrong/bb/internal/fetch"
 	"github.com/ja-armstrong/bb/internal/prereqs"
 	"github.com/ja-armstrong/bb/internal/wizard"
@@ -42,14 +44,6 @@ Commands:
   help     show this help
 
 Use "bitbeard <command>" to see what a command will do.`
-
-// USER-FACING
-const usageDoctor = `bitbeard doctor
-
-Check this machine and the running stack without changing anything: verifies
-prerequisites, configuration, and stack health.
-
-(Not implemented yet — this stub only reports what it will do.)`
 
 // USER-FACING
 const usageUpdate = `bitbeard update
@@ -100,9 +94,24 @@ func main() {
 			fmt.Fprintf(os.Stderr, "bitbeard: %v\n", err)
 			os.Exit(1)
 		}
-	case "doctor":
+		// Verification step of the Bootstrap: the doctor's check-only sweep
+		// of prerequisites, .env guardrails and stack health.
 		// USER-FACING
-		fmt.Fprintln(os.Stdout, usageDoctor)
+		fmt.Fprintln(os.Stdout, "bitbeard setup — final verification (the doctor; it changes nothing)")
+		res := doctor.Run(doctor.Options{
+			StackDir: fetchRes.StackPath,
+			Out:      os.Stdout,
+		})
+		if res.Failed {
+			// USER-FACING
+			fmt.Fprintln(os.Stdout, "bitbeard setup is done, but the doctor reported problems above. Follow the fix hints, then rerun `bitbeard doctor` to confirm.")
+			os.Exit(1)
+		}
+	case "doctor":
+		// Check-only mode of the Bootstrap: report, never change.
+		if doctor.Run(doctor.Options{Out: os.Stdout}).Failed {
+			os.Exit(1)
+		}
 	case "update":
 		// USER-FACING
 		fmt.Fprintln(os.Stdout, usageUpdate)

@@ -62,7 +62,7 @@ func Run(o Options) (Result, error) {
 	out := o.Out
 	var res Result
 
-	composeDir, err := findComposeDir(o.StackDir)
+	composeDir, err := FindComposeDir(o.StackDir)
 	if err != nil {
 		return res, err
 	}
@@ -353,10 +353,11 @@ func exampleSeed(composeDir string) Env {
 	return seed
 }
 
-// findComposeDir locates the directory holding docker-compose.yml: the
+// FindComposeDir locates the directory holding docker-compose.yml: the
 // bitbeard/ directory of the cloned repository, or the repository root as a
-// fallback.
-func findComposeDir(stackDir string) (string, error) {
+// fallback. Read-only. Shared with the Doctor, which re-derives the same
+// directory to check the live stack.
+func FindComposeDir(stackDir string) (string, error) {
 	for _, d := range []string{filepath.Join(stackDir, "bitbeard"), stackDir} {
 		if fi, err := os.Stat(filepath.Join(d, "docker-compose.yml")); err == nil && !fi.IsDir() {
 			return d, nil

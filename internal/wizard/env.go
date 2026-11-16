@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -245,20 +246,79 @@ func IsChangeMe(v string) bool {
 	return strings.Contains(strings.ToLower(v), "change-me")
 }
 
-// EnsureEnvIgnored verifies dir/.gitignore ignores .env, appending a line
-// when it does not, and notes what it did. The credentials file must never
-// end up in git.
-func EnsureEnvIgnored(dir string, out io.Writer) error {
+// GuardrailProblems reports how e fails the .env guardrails the Doctor
+// checks: a required key missing or empty (the OpenVPN credentials only when
+// VPN_PROVIDER needs them), or a change-me placeholder still sitting in any
+// value. It is check-only: it touches nothing but the map it is given. The
+// wizard enforces the same rules when it writes .env; the Doctor re-checks
+// the file that is actually on disk.
+func GuardrailProblems(e Env) []string {
+	var probs []string
+
+	req := append([]string(nil), requiredKeys...)
+	if normalizeProvider(e["VPN_PROVIDER"]) != customProvider {
+		req = append(req, openvpnCredsKeys...)
+	}
+	required := make(map[string]bool, len(req))
+	for _, k := range req {
+		required[k] = true
+		v, ok := e[k]
+		switch {
+		case !ok:
+			// USER-FACING
+			probs = append(probs, fmt.Sprintf("%s is missing", k))
+		case v == "":
+			// USER-FACING
+			probs = append(probs, fmt.Sprintf("%s is empty", k))
+		case IsChangeMe(v):
+			// USER-FACING
+			probs = append(probs, fmt.Sprintf("%s still carries its change-me placeholder; set a real value", k))
+		}
+	}
+
+	// Any other value carrying a placeholder is a guardrail failure too.
+	keys := make([]string, 0, len(e))
+	for k := range e {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if !required[k] && IsChangeMe(e[k]) {
+			// USER-FACING
+			probs = append(probs, fmt.Sprintf("%s still carries its change-me placeholder; set a real value", k))
+		}
+	}
+	return probs
+}
+
+// EnvIsIgnored reports whether dir/.gitignore ignores .env. Check-only:
+// unlike EnsureEnvIgnored it never writes anything, so the Doctor can use it.
+func EnvIsIgnored(dir string) bool {
 	path := filepath.Join(dir, ".gitignore")
 	data, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
+	if err != nil {
+		return false
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		t := strings.TrimSpace(line)
 		if t != "" && !strings.HasPrefix(t, "#") && strings.Contains(t, ".env") {
-			return nil // already covered
+			return true
 		}
+	}
+	return false
+}
+
+// EnsureEnvIgnored verifies dir/.gitignore ignores .env, appending a line
+// when it does not, and notes what it did. The credentials file must never
+// end up in git.
+func EnsureEnvIgnored(dir string, out io.Writer) error {
+	if EnvIsIgnored(dir) {
+		return nil
+	}
+	path := filepath.Join(dir, ".gitignore")
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
