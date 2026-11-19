@@ -165,7 +165,12 @@ func (j JellyfinAPI) CheckToken(baseURL, token string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("X-Emby-Token", token)
+	// The Authorization form, not X-Emby-Token: recent Jellyfin releases
+	// (10.11.x observed) reject a bare API key in X-Emby-Token with 401,
+	// while the Authorization header works across versions.
+	req.Header.Set(
+		"Authorization", fmt.Sprintf(`MediaBrowser Token=%q`, token),
+	)
 	c := j.Client
 	if c == nil {
 		c = &http.Client{Timeout: 10 * time.Second}

@@ -16,6 +16,7 @@ from contextlib import closing
 from fastapi.testclient import TestClient
 
 from api.config import Config
+from api import jellyfin
 from api.jellyfin import (
     JellyfinClient,
     JellyfinProvisioningError,
@@ -134,13 +135,23 @@ def test_create_user_walks_the_documented_endpoints():
     methods_urls = [(r["method"], r["url"]) for r in transport.requests]
     assert methods_urls == [
         ("GET", "http://jellyfin.test:8096/Users"),
-        ("POST", "http://jellyfin.test:8096/Users"),
+        ("POST", "http://jellyfin.test:8096/Users/New"),
         ("POST", "http://jellyfin.test:8096/Users/u1/Password"),
     ]
-    # The token rides in the header on every call, never in a URL.
-    assert all(r["headers"] == {"X-Emby-Token": "jf-key"} for r in transport.requests)
+    # The token rides in the Authorization header on every call, never in
+    # a URL (recent Jellyfin rejects a bare API key in X-Emby-Token).
+    assert all(
+        r["headers"] == {"Authorization": 'MediaBrowser Token="jf-key"'}
+        for r in transport.requests
+    )
     create, password = transport.requests[1], transport.requests[2]
-    assert create["json"] == {"Name": "newcomer"}
+    assert create["json"] == {
+        "Name": "newcomer",
+        "Policy": {
+            "AuthenticationProviderId": jellyfin.DEFAULT_AUTH_PROVIDER,
+            "PasswordResetProviderId": jellyfin.DEFAULT_RESET_PROVIDER,
+        },
+    }
     assert password["json"] == {"Id": "u1", "CurrentPw": "", "NewPw": "s3cret-pw"}
 
 
@@ -179,7 +190,8 @@ def test_create_user_names_an_unreachable_server():
     except JellyfinProvisioningError as exc:
         assert "create" in str(exc)
     # The password was never sent on the failed create.
-    assert transport.requests[1]["json"] == {"Name": "newcomer"}
+    assert transport.requests[1]["json"]["Name"] == "newcomer"
+    assert "NewPw" not in transport.requests[1]["json"]
 
 
 # --- Approve with the integration off ----------------------------------------
@@ -365,10 +377,10 @@ def test_the_real_client_is_built_from_the_config(tmp_path, monkeypatch):
     assert seen[0] == {
         "method": "GET",
         "url": "http://jellyfin.test:8096/Users",
-        "headers": {"X-Emby-Token": "jf-key"},
+        "headers": {"Authorization": 'MediaBrowser Token="jf-key"'},
         "json": None,
     }
-    assert seen[1]["url"] == "http://jellyfin.test:8096/Users"
+    assert seen[1]["url"] == "http://jellyfin.test:8096/Users/New"
     assert seen[2]["url"] == "http://jellyfin.test:8096/Users/u1/Password"
 
 

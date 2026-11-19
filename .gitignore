@@ -7,3 +7,8 @@
 AGENTS.md
 /.scratch/
 /node_modules/
+
+# Jellyfin's ./jellyfin mount is live runtime state; only the shipped
+# default (logging.default.json) is tracked.
+/bitbeard/jellyfin/*
+!/bitbeard/jellyfin/logging.default.json

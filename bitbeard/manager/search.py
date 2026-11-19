@@ -37,7 +37,7 @@ class SearchResult:
 
 def _default_transport(url):
     """Thin requests-based adapter over the transport seam."""
-    return requests.get(url)
+    return requests.get(url, timeout=30)
 
 
 def parse_torznab(xml_bytes):

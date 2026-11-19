@@ -125,9 +125,11 @@ def test_set_password_walks_the_documented_endpoints():
         ("GET", "http://jellyfin.test:8096/Users"),
         ("POST", "http://jellyfin.test:8096/Users/u1/Password"),
     ]
-    # The token rides in the header on every call, never in a URL.
+    # The token rides in the Authorization header on every call, never in
+    # a URL (recent Jellyfin rejects a bare API key in X-Emby-Token).
     assert all(
-        r["headers"] == {"X-Emby-Token": "jf-key"} for r in transport.requests
+        r["headers"] == {"Authorization": 'MediaBrowser Token="jf-key"'}
+        for r in transport.requests
     )
     # The admin key needs no current password: the set carries only the
     # matched user's id and the new one.

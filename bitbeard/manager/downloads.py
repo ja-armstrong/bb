@@ -146,6 +146,12 @@ class DownloadManager:
         # The per-Download directory must exist before qBittorrent writes
         # into it (and so reconciliation can measure it even when empty).
         os.makedirs(download_dir, exist_ok=True)
+        # The manager runs as root and qBittorrent as PUID 1000: a
+        # root-owned 0755 slot makes every file_open a "Permission
+        # denied" (observed as libtorrent File error alerts). The media
+        # tree is world-writable by convention (the imported library's
+        # own directories are 0777), so the slot matches it.
+        os.chmod(download_dir, 0o777)
         # Snapshot the hashes that exist before we add, so the completion
         # sweep can tell our torrents apart from everything else.
         hashes_before_add = {t.hash for t in self._qbt.torrents_info()}

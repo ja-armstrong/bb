@@ -78,14 +78,29 @@ def generate_password() -> str:
     return secrets.token_urlsafe(18)
 
 
+#: Jellyfin 12.x requires the provider ids inline on user creation; these
+#: are the stock providers every default install has (read back from the
+#: server's own users, so a custom-provider install would need an edit).
+DEFAULT_AUTH_PROVIDER = "Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider"
+DEFAULT_RESET_PROVIDER = "Jellyfin.Server.Implementations.Users.DefaultPasswordResetProvider"
+
+
 class JellyfinClient:
     """The Jellyfin REST calls provisioning needs, and nothing more.
 
-    Auth is the API token in the ``X-Emby-Token`` header (the admin token
-    from the Dashboard -> API Keys page). Endpoints, per the ticket:
+    Auth is the API token in the ``Authorization: MediaBrowser Token="…"``
+    header (the admin token from the Dashboard -> API Keys page). Recent
+    Jellyfin releases reject a bare API key in ``X-Emby-Token`` with 401
+    (observed on 12.x), while the Authorization form works across
+    versions; the ``api_key`` query parameter is rejected there too and
+    would leak the key into URLs anyway. Endpoints, per the ticket:
 
     - ``GET /Users`` — the username-taken check before creating.
-    - ``POST /Users`` with ``{"Name": username}`` — creates the user.
+    - ``POST /Users/New`` with ``{"Name": username}`` — creates the user
+      (Jellyfin 12.x moved creation off ``POST /Users``: that route now
+      dispatches to the update action and fails with an empty Guid, and
+      it additionally demands the auth/password-reset provider ids in
+      the body — both pinned here).
     - ``POST /Users/{Id}/Password`` with ``{"Id": ..., "NewPw": ...}`` —
       sets the fresh user's password (a just-created user has none, so no
       current password rides along).
@@ -103,7 +118,9 @@ class JellyfinClient:
         self._transport = transport or _default_transport
 
     def _headers(self) -> dict:
-        return {"X-Emby-Token": self._token}
+        return {
+            "Authorization": f'MediaBrowser Token="{self._token}"'
+        }
 
     def create_user(self, username: str, password: str) -> None:
         """Create the Jellyfin user ``username`` with ``password``.
@@ -135,9 +152,18 @@ class JellyfinClient:
 
         status, payload = self._transport(
             "POST",
-            f"{self._base_url}/Users",
+            f"{self._base_url}/Users/New",
             headers=self._headers(),
-            json={"Name": username},
+            json={
+                "Name": username,
+                # Jellyfin 12.x answers 400 without these two: the policy
+                # must name its auth and password-reset providers (the
+                # stock pair; a custom-provider install edits the consts).
+                "Policy": {
+                    "AuthenticationProviderId": DEFAULT_AUTH_PROVIDER,
+                    "PasswordResetProviderId": DEFAULT_RESET_PROVIDER,
+                },
+            },
         )
         if status == 401:
             raise JellyfinProvisioningError(

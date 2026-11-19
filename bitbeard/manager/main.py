@@ -203,7 +203,9 @@ def create_app(
 
     @app.get("/search", dependencies=service_auth)
     async def api_search(q: str = Query(...)):
-        results = search(q, config=config)
+        # search() does blocking network I/O; keep it off the event loop so a
+        # slow Jackett/indexer can't freeze the whole service.
+        results = await asyncio.to_thread(search, q, config=config)
         return {"results": [result.as_dict() for result in results]}
 
     @app.post("/download", dependencies=service_auth)
