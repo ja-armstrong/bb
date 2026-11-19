@@ -39,10 +39,26 @@
             <div class="userbar">
                 <span id="quota-info"></span>
                 <span id="userbar-info"></span>
-                <!-- USER-FACING -->
-                <button id="logout-btn">Log out</button>
+                <span class="userbar-actions">
+                    <!-- USER-FACING -->
+                    <button id="help-btn" title="???" aria-label="???">?</button>
+                    <!-- USER-FACING -->
+                    <button id="logout-btn">Log out</button>
+                </span>
             </div>
-            <div class="section">
+            <!-- Tab bar, the Admin Panel's #nav pattern: one button per
+                 page, showPage() swaps the .page sections below. -->
+            <nav id="nav" aria-label="Sections">
+                <!-- USER-FACING -->
+                <button data-page="search" aria-pressed="true">Search</button>
+                <!-- USER-FACING -->
+                <button data-page="downloads" aria-pressed="false">Downloads</button>
+                <!-- USER-FACING -->
+                <button data-page="media" aria-pressed="false">My Media</button>
+                <!-- USER-FACING -->
+                <button data-page="account" aria-pressed="false">Account</button>
+            </nav>
+            <div class="section page" id="page-search">
                 <!-- USER-FACING -->
                 <h2>Search Torrents</h2>
             <form id="search-form" autocomplete="off">
@@ -62,6 +78,7 @@
                 <button id="next-page" hidden>Next &gt;</button>
             </div>
         </div>
+        <div class="page" id="page-downloads" hidden>
         <div class="section">
             <!-- USER-FACING -->
             <h2>Download Torrent</h2>
@@ -91,17 +108,8 @@
         </div>
         <div class="section">
             <!-- USER-FACING -->
-            <h2>My Media</h2>
-            <!-- USER-FACING -->
-            <button id="refresh-media">Refresh My Media</button>
-            <div id="mymedia-message" aria-live="polite"></div>
-            <div class="results" id="media-list"></div>
-        </div>
-        <div class="section">
-            <!-- USER-FACING -->
             <h2>Download Progress</h2>
-            <!-- USER-FACING -->
-            <button id="refresh-progress">Refresh Progress</button>
+            <!-- Auto-refreshes every few seconds; no manual button. -->
             <div class="progress-list" id="progress-list"></div>
         </div>
         <div class="section">
@@ -111,6 +119,18 @@
             <button id="cancel-btn">Cancel All</button>
             <div id="cancel-message" aria-live="polite"></div>
         </div>
+        </div>
+        <div class="page" id="page-media" hidden>
+        <div class="section">
+            <!-- USER-FACING -->
+            <h2>My Media</h2>
+            <!-- USER-FACING -->
+            <button id="refresh-media">Refresh My Media</button>
+            <div id="mymedia-message" aria-live="polite"></div>
+            <div class="results" id="media-list"></div>
+        </div>
+        </div>
+        <div class="page" id="page-account" hidden>
         <div class="section">
             <!-- USER-FACING -->
             <h2>Change Password</h2>
@@ -162,7 +182,83 @@
             </form>
         </div>
         </div>
+        </div>
     </main>
+
+    <!-- First-login welcome modal (single scroll). Auto-shown once per
+         Account while users.tutorial_seen is unset; the ? button in the
+         userbar re-opens it anytime. Dismissing POSTs /me/tutorial-seen. -->
+    <div class="modal-overlay" id="welcome-overlay" hidden>
+        <div class="modal welcome-modal" role="dialog" aria-modal="true"
+             aria-labelledby="welcome-title">
+            <h2 id="welcome-title">avast, etc.</h2>
+            <!-- USER-FACING -->
+            <p>
+                thank you for being one of the very cool people who i have
+                allowed to use bitbeard. this modal is a brief explanation of
+                the tool &amp; how to use it, so if you dont need that, click
+                on outta here. bitbeard, for the somehow uninitiated, is an
+                extremely legal tool that automates ehhhh... "media
+                acquistion" from searching all the way to streaming. bitbeard
+                users (that's you!) are each allocated a slice of my hard
+                drive to acquire media. everyone's slices are shared on
+                jellyfin, so if Alice downloads season 6 of Jeopardy, Bob can
+                watch it without also downloading a copy. That being said,
+                dont download anything incredibly embarrassing. nobody else
+                will know who downloaded it (except me and i proooomise not
+                to blackmail you) but cmon man dont stain the server and
+                kill our vibe. And make sure your downloads arent super low
+                quality camcorder recordings from two days after a movie
+                comes out. be patient with it and get a webrip like a good
+                little pirate. since users have their own slices, you are
+                also responsible for maintaining your slice. you can delete
+                media that you have downloaded to free up space as needed.
+                if, however, the space limitation is too restrictive, reach
+                out to me and i can change limits on a case by case basis;
+                especially if your library is contributing a lot to the
+                quality of the server!
+            </p>
+            <!-- Quick jumps: each closes the modal and opens its tab. -->
+            <div class="welcome-jumps">
+                <!-- USER-FACING -->
+                <button data-jump="search">Search</button>
+                <!-- USER-FACING -->
+                <button data-jump="downloads">Downloads</button>
+                <!-- USER-FACING -->
+                <button data-jump="media">My Media</button>
+                <!-- USER-FACING -->
+                <button data-jump="account">Account</button>
+            </div>
+            <!-- Jellyfin onboarding. Hidden whole when the integration is
+                 off (the /auth/me capability flag), per the modal's copy. -->
+            <div id="welcome-jellyfin" hidden>
+                <h2>Jellyfin</h2>
+                <!-- USER-FACING -->
+                <p>
+                    when your application was first accepted, a jellyfin
+                    account for you on our server was automatically generated
+                    and given a random password (becayse of technical
+                    limitations, we can't just use your bitbeard password;
+                    thatd be massively insecure). so before youre able to
+                    first login to jellyfin, you will need to set a new
+                    password through bitbeard. once you have a password, you
+                    can either use the web client by clicking the shiny "TO
+                    JELLYFIN" button or use any jellyfin client.
+                </p>
+                <!-- USER-FACING -->
+                <a id="to-jellyfin" class="jellyfin-cta" href="#" hidden
+                   target="_blank" rel="noopener">TO JELLYFIN</a>
+            </div>
+            <div class="welcome-actions">
+                <!-- USER-FACING -->
+                <button id="welcome-dismiss" class="primary">oki</button>
+                <!-- USER-FACING -->
+                <button id="welcome-jellyfin-now" hidden>
+                    let me change my jellyfin password now
+                </button>
+            </div>
+        </div>
+    </div>
     <script>
         // --- API base is fixed to same-origin reverse proxy ---
         const API_BASE = "/api";
@@ -197,13 +293,106 @@
                     !me.jellyfin_password_available;
                 loginView.hidden = true;
                 appView.hidden = false;
+                showPage('search');
                 loadQuota();
                 loadProgress();
                 loadMedia();
+                // First-login welcome modal: auto-show while the
+                // Account's server-side flag is unset; ? re-opens it
+                // anytime after. The Jellyfin pieces ride the same
+                // capability flag the password section uses.
+                welcome.jellyfinAvailable =
+                    me.jellyfin_password_available && !!me.jellyfin_url;
+                welcome.url = me.jellyfin_url || "";
+                welcome.applyCapability();
+                if (!me.tutorial_seen) welcome.open();
             } catch (err) {
                 showLogin();
             }
         }
+
+        // --- Tab routing (the Admin Panel's pattern) --------------------
+        // One .page section per #nav button; the active button is marked
+        // with aria-pressed and the accent edge in CSS.
+        function showPage(name) {
+            document.querySelectorAll('.page').forEach(page => {
+                page.hidden = true;
+            });
+            document.getElementById(`page-${name}`).hidden = false;
+            document.querySelectorAll('#nav button').forEach(btn => {
+                btn.setAttribute('aria-pressed',
+                    btn.dataset.page === name ? 'true' : 'false');
+            });
+        }
+
+        document.querySelectorAll('#nav button').forEach(btn => {
+            btn.addEventListener('click', () => showPage(btn.dataset.page));
+        });
+
+        // --- Welcome modal -----------------------------------------------
+        // First-login onboarding as one scrolling dialog: the intro prose,
+        // quick jumps to each tab, and the Jellyfin walkthrough with its
+        // TO JELLYFIN button. Auto-shown once (the server-side flag),
+        // re-openable from the ? button forever.
+        const welcome = {
+            overlay: document.getElementById('welcome-overlay'),
+            jellyfinAvailable: false,
+            url: "",
+            open() {
+                this.overlay.hidden = false;
+                this.overlay.querySelector('button, a').focus();
+            },
+            close() {
+                this.overlay.hidden = true;
+            },
+            applyCapability() {
+                // Jellyfin off: the section, the TO JELLYFIN button and
+                // the password shortcut all hide, per the modal's copy.
+                document.getElementById('welcome-jellyfin').hidden =
+                    !this.jellyfinAvailable;
+                document.getElementById('welcome-jellyfin-now').hidden =
+                    !this.jellyfinAvailable;
+                const cta = document.getElementById('to-jellyfin');
+                cta.hidden = !this.jellyfinAvailable;
+                if (this.jellyfinAvailable) cta.href = this.url;
+            },
+            // Both exits count as "seen": the flag is set once, and the
+            // auto-show never fires again (network trouble must not trap
+            // the modal, so a failed POST still closes it).
+            dismiss() {
+                fetch(`${API_BASE}/me/tutorial-seen`, { method: "POST" })
+                    .catch(() => {});
+                this.close();
+            },
+            jump(page) {
+                showPage(page);
+                this.close();
+            }
+        };
+
+        document.getElementById('help-btn').addEventListener('click', () => {
+            welcome.open();
+        });
+        document.getElementById('welcome-dismiss')
+            .addEventListener('click', () => welcome.dismiss());
+        document.getElementById('welcome-jellyfin-now')
+            .addEventListener('click', () => {
+                showPage('account');
+                welcome.close();
+                // Land on the password form itself, past the tab top.
+                document.getElementById('jellyfin-password-section')
+                    .scrollIntoView({ block: 'start' });
+            });
+        document.querySelectorAll('.welcome-jumps button').forEach(btn => {
+            btn.addEventListener('click', () => welcome.jump(btn.dataset.jump));
+        });
+        // Escape closes like the native dialogs elsewhere in the page;
+        // focus returns to the body, keeping tab order sane.
+        document.addEventListener('keydown', (e) => {
+            if (e.key === "Escape" && !welcome.overlay.hidden) {
+                welcome.dismiss();
+            }
+        });
 
         // --- Storage Quota ---------------------------------------------
         // The API pre-checks every submission against the Account's cap;
@@ -417,7 +606,6 @@
                             <button onclick="copyMagnet('${r.magnet_link.replace(/'/g, "\\'")}')">Copy Magnet</button>
                             <button onclick="prefillDownload(${resultIndex})">Download</button>
                         </div>
-                        <div class="magnet-link">${r.magnet_link}</div>
                         <div class="torrent-info">
                             Size: ${Number(r.size_gb).toFixed(2)} GB &nbsp;|&nbsp; Seeders: ${r.seeders}
                         </div>
@@ -441,9 +629,18 @@
             searchResults = [];
             currentPage = 1;
             try {
-                const resp = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`);
+                const resp = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`, {
+                    // A wedged response must never leave "Searching..." on
+                    // screen forever: cap the wait and always settle.
+                    signal: AbortSignal.timeout(30000)
+                });
                 if (handleAuthFailure(resp)) return;
-                const data = await resp.json();
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok) {
+                    resultsDiv.innerHTML = `<span class="error">${data.detail || `Search failed (${resp.status}).`}</span>`;
+                    pageInfo.textContent = "";
+                    return;
+                }
                 if (data.results && data.results.length > 0) {
                     searchResults = data.results;
                     currentPage = 1;
@@ -522,11 +719,17 @@
             }
         });
 
-        // Progress
-        async function loadProgress() {
+        // --- Progress ---------------------------------------------------
+        // Auto-refreshing: a silent poll every 5s while the app view is
+        // visible (no "Loading..." flicker over existing content; the
+        // 401 path still routes to the login page). showApp's initial
+        // call renders immediately, the interval keeps it current.
+        async function loadProgress(silent) {
             const progressDiv = document.getElementById('progress-list');
-            <!-- USER-FACING -->
-            progressDiv.innerHTML = "Loading...";
+            if (!silent) {
+                // USER-FACING
+                progressDiv.innerHTML = "Loading...";
+            }
             try {
                 const resp = await fetch(`${API_BASE}/progress`);
                 if (handleAuthFailure(resp)) return;
@@ -548,7 +751,9 @@
                 progressDiv.innerHTML = `<span class="error">Error: ${err}</span>`;
             }
         }
-        document.getElementById('refresh-progress').addEventListener('click', loadProgress);
+        setInterval(() => {
+            if (!appView.hidden) loadProgress(true);
+        }, 5000);
 
         // Cancel
         document.getElementById('cancel-btn').addEventListener('click', async function() {
@@ -685,13 +890,19 @@
             <!-- USER-FACING -->
         }
         // Helper: Prefill download form from a search result, carrying the
-        // result's Torznab size and title into the submission.
+        // result's Torznab size and title into the submission. The form
+        // lives on the Downloads tab, so the click switches there and
+        // brings the form into view.
         window.prefillDownload = function(resultIndex) {
             const result = searchResults[resultIndex];
             if (!result) return;
             document.getElementById('magnet-link').value = result.magnet_link;
             pendingSizeBytes = Math.round(Number(result.size_gb || 0) * (1024 ** 3));
             pendingTitle = result.title;
+            showPage('downloads');
+            document.getElementById('page-downloads').scrollIntoView(
+                { behavior: 'smooth', block: 'start' }
+            );
         }
     </script>
 </body>

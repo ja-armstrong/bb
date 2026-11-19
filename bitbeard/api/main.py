@@ -111,6 +111,9 @@ class Caller:
     username: str
     role: str
     discord_id: str | None = None
+    #: Whether this Account has dismissed the Webui's welcome modal;
+    #: None for synthetic Actors (no Account row behind them).
+    tutorial_seen: bool | None = None
     #: How the Caller arrived: "session" (cookie) or "discord" (the Bot).
     via: str = "session"
 
@@ -404,6 +407,7 @@ def create_app(
             username=account["username"],
             role=account["role"],
             discord_id=account["discord_id"],
+            tutorial_seen=bool(account["tutorial_seen"]),
         )
 
     def require_caller(
@@ -464,6 +468,7 @@ def create_app(
                     username=account["username"],
                     role=account["role"],
                     discord_id=account["discord_id"],
+                    tutorial_seen=bool(account["tutorial_seen"]),
                     via="discord",
                 )
             name = discord_name or discord_id
@@ -1079,14 +1084,45 @@ def create_app(
         Jellyfin. It is a single boolean — the page has nothing honest
         to show for the finer cases, and the endpoint itself names the
         reason on a real attempt.
+
+        ``tutorial_seen`` drives the Webui's first-login welcome modal
+        (shown until the Account dismisses it once) and
+        ``jellyfin_url`` is the reachable link the modal's TO JELLYFIN
+        button opens — only present when the capability flag is up,
+        since a modal pointing at a dead URL is worse than no button.
         """
+        jellyfin_available = (
+            config.jellyfin_enabled and media_server() == "jellyfin"
+        )
         return {
             "username": caller.username,
             "role": caller.role,
-            "jellyfin_password_available": (
-                config.jellyfin_enabled and media_server() == "jellyfin"
+            "jellyfin_password_available": jellyfin_available,
+            "jellyfin_url": (
+                config.jellyfin_url if jellyfin_available else None
             ),
+            "tutorial_seen": bool(caller.tutorial_seen),
         }
+
+    @app.post("/me/tutorial-seen")
+    async def me_tutorial_seen(caller: Caller = Depends(require_session)):
+        """Mark the welcome modal as seen (first-login onboarding).
+
+        The Webui calls this when the Account dismisses the modal; it is
+        one-way and idempotent, so a replayed call changes nothing.
+        Requires a Session (any Role): the flag is per-Account state,
+        and an unauthenticated caller has no Account to mark. Audited
+        like every Account-state change, so the Ledger shows who chose
+        to skip the introductions.
+        """
+        db.set_tutorial_seen(config.db_path, caller.account_id)
+        db.record_audit(
+            config.db_path,
+            actor=caller.username,
+            action="tutorial_dismissed",
+            details={},
+        )
+        return {"tutorial_seen": True}
 
     @app.post("/me/jellyfin-password")
     async def set_jellyfin_password(

@@ -38,6 +38,9 @@ CREATE TABLE IF NOT EXISTS users (
     quota_bytes INTEGER,
     quota_used_bytes INTEGER NOT NULL DEFAULT 0,
     disabled INTEGER NOT NULL DEFAULT 0,
+    -- The Webui's first-login welcome modal: 0 until the Account has
+    -- dismissed it once; the ? button re-opens it anytime after that.
+    tutorial_seen INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 
@@ -117,7 +120,26 @@ def connect(path: str) -> sqlite3.Connection:
 def create_schema(connection: sqlite3.Connection) -> None:
     """Create every table and index the stack needs. Idempotent."""
     connection.executescript(SCHEMA)
+    _migrate(connection)
     connection.commit()
+
+
+def _migrate(connection: sqlite3.Connection) -> None:
+    """Add columns the SCHEMA's CREATE IF NOT EXISTS won't retrofit.
+
+    Existing stores keep their original users table, so a column added
+    to the schema later must be applied with an idempotent ALTER here:
+    it runs on every boot and only acts when the column is missing.
+    """
+    columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(users)")
+    }
+    if "tutorial_seen" not in columns:
+        connection.execute(
+            "ALTER TABLE users "
+            "ADD COLUMN tutorial_seen INTEGER NOT NULL DEFAULT 0"
+        )
 
 
 def seed_bootstrap_admin(
@@ -208,6 +230,21 @@ def update_password(path: str, account_id: int, password: str) -> bool:
         cursor = connection.execute(
             "UPDATE users SET password_hash = ? WHERE id = ?",
             (hash_password(password), account_id),
+        )
+        connection.commit()
+    return cursor.rowcount > 0
+
+
+def set_tutorial_seen(path: str, account_id: int) -> bool:
+    """Mark the Account as having seen the Webui's welcome modal.
+
+    One-way: once set it stays set — the ? button re-opens the modal
+    without consulting or resetting this flag. Returns True when the
+    Account exists.
+    """
+    with closing(connect(path)) as connection:
+        cursor = connection.execute(
+            "UPDATE users SET tutorial_seen = 1 WHERE id = ?", (account_id,)
         )
         connection.commit()
     return cursor.rowcount > 0

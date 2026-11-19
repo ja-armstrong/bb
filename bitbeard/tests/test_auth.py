@@ -277,11 +277,14 @@ def test_user_role_is_refused_on_admin_endpoints(tmp_path):
 
         assert client.get("/admin/ping").status_code == 403
         # The Role still allows the Account's own endpoints. The Jellyfin
-        # capability flag rides along (ticket #32): off by default.
+        # capability flag rides along (ticket #32): off by default, with
+        # no reachable URL, and the welcome flag unset until dismissed.
         assert client.get("/auth/me").json() == {
             "username": "deckhand",
             "role": "user",
             "jellyfin_password_available": False,
+            "jellyfin_url": None,
+            "tutorial_seen": False,
         }
 
 
@@ -404,3 +407,90 @@ def test_expired_sessions_are_refused_and_purged(tmp_path):
     finally:
         connection.close()
     assert count == 0
+
+
+# --- The welcome-modal flag (first-login onboarding) -------------------------
+
+
+def test_auth_me_reports_tutorial_seen_false_until_dismissed(tmp_path):
+    config = make_config(tmp_path / "bitbeard.db")
+
+    with TestClient(create_app(config)) as client:
+        _login(client)
+        me = client.get("/auth/me").json()
+
+    assert me["tutorial_seen"] is False
+
+
+def test_tutorial_seen_is_set_by_the_endpoint_and_audited(tmp_path):
+    config = make_config(tmp_path / "bitbeard.db")
+
+    with TestClient(create_app(config)) as client:
+        _login(client)
+        response = client.post("/me/tutorial-seen")
+        assert response.status_code == 200
+        assert response.json() == {"tutorial_seen": True}
+        assert client.get("/auth/me").json()["tutorial_seen"] is True
+
+    connection = sqlite3.connect(config.db_path)
+    try:
+        action = connection.execute(
+            "SELECT action FROM audit WHERE actor = 'admin'"
+        ).fetchall()
+    finally:
+        connection.close()
+    assert ("tutorial_dismissed",) in action
+
+
+def test_tutorial_seen_is_one_way_and_idempotent(tmp_path):
+    config = make_config(tmp_path / "bitbeard.db")
+
+    with TestClient(create_app(config)) as client:
+        _login(client)
+        assert client.post("/me/tutorial-seen").status_code == 200
+        # A replayed call changes nothing but also breaks nothing.
+        assert client.post("/me/tutorial-seen").status_code == 200
+        assert client.get("/auth/me").json()["tutorial_seen"] is True
+
+
+def test_tutorial_seen_requires_a_session(tmp_path):
+    config = make_config(tmp_path / "bitbeard.db")
+
+    with TestClient(create_app(config)) as client:
+        assert client.post("/me/tutorial-seen").status_code == 401
+
+
+def test_tutorial_seen_column_is_retrofitted_to_an_existing_store(tmp_path):
+    """A store built before the column exists gains it on initialize."""
+    path = tmp_path / "bitbeard.db"
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute(
+            """
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL,
+                discord_id TEXT UNIQUE,
+                quota_bytes INTEGER,
+                quota_used_bytes INTEGER NOT NULL DEFAULT 0,
+                disabled INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    db.initialize(path)
+
+    connection = sqlite3.connect(path)
+    try:
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(users)")
+        }
+    finally:
+        connection.close()
+    assert "tutorial_seen" in columns

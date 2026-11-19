@@ -36,6 +36,11 @@
 
 * { box-sizing: border-box; }
 
+/* The hidden attribute must always win: author display rules (the
+   welcome modal's flex overlay, the TO JELLYFIN anchor) would otherwise
+   override the browser's [hidden] { display: none }. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -82,6 +87,13 @@ main { max-width: 64rem; margin-inline: auto; padding: 0 1rem 4rem; }
 }
 
 #userbar-info, #quota-info { color: var(--text-dim); }
+
+/* Log out and the ? that re-opens the welcome modal: one right-aligned
+   cluster so the userbar's spreads stay: info left, controls right. */
+.userbar-actions { display: inline-flex; gap: .5rem; }
+
+/* The ? button: a compact secondary control, square-ish by content. */
+#help-btn { min-width: 2.75rem; padding: .5rem .6rem; }
 
 /* --- Sections --------------------------------------------------------- */
 
@@ -200,6 +212,15 @@ button:disabled, input:disabled, select:disabled {
   border-bottom: 1px solid var(--hairline);
 }
 
+/* The active tab (the Webui marks it with aria-pressed): the accent edge
+   and label mark where you are; every button stays an outlined control
+   otherwise. Accent-on-bg holds AA as text (5.0:1). */
+#nav button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 /* --- Tables ------------------------------------------------------------ */
 
 table { width: 100%; border-collapse: collapse; }
@@ -303,4 +324,81 @@ a { transition: color 120ms ease; }
     transition: none !important;
     animation: none !important;
   }
+}
+
+/* --- Welcome modal -------------------------------------------------------- */
+/* First-login onboarding: one scrolling dialog over a dimmed page. Same
+   card language as .login-card — surface, hairline, --radius — no
+   animation, per the motion rules above. */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: rgb(0 0 0 / .7);
+  /* Small screens see the card, tall ones center it. */
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 2rem 1rem;
+  overflow-y: auto;
+}
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+}
+
+.welcome-modal {
+  width: min(42rem, 100%);
+  padding: 1.75rem 1.5rem 2rem;
+}
+
+.welcome-modal p {
+  margin: 0 0 1.25rem;
+  color: var(--text-dim);
+  font-size: .95rem;
+}
+
+/* Quick jumps: the four tabs as a wrap row of the same outlined
+   controls; the active-tab styling does not apply here, these are
+   plain buttons that navigate. */
+.welcome-jumps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  padding: 1.25rem 0;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  margin-bottom: 1.25rem;
+}
+
+/* The shiny one: the TO JELLYFIN button is the modal's single primary
+   action — red fill like a form's submit, oversized for prominence. */
+.jellyfin-cta {
+  display: inline-block;
+  min-height: 2.75rem;
+  padding: .75rem 1.5rem;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--on-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin-top: 1.5rem;
+}
+
+/* "oki" dismisses; the red fill marks it as the way out. */
+.welcome-actions .primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
 }
