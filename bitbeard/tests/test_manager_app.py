@@ -90,11 +90,11 @@ def test_download_endpoint_submits_to_the_manager(tmp_path):
         response = client.post(
             "/download",
             headers=AUTH,
-            json={"magnet_link": "magnet:?xt=urn:btih:abc", "category": "Movie"},
+            json={"magnet_link": "magnet:?xt=urn:btih:abc", "category": "Movies"},
         )
 
     assert response.status_code == 200
-    assert manager.submitted == [("magnet:?xt=urn:btih:abc", "Movie", None)]
+    assert manager.submitted == [("magnet:?xt=urn:btih:abc", "Movies", None)]
 
 
 def test_download_endpoint_forwards_trusted_actor_headers_to_the_manager(tmp_path):
@@ -110,12 +110,12 @@ def test_download_endpoint_forwards_trusted_actor_headers_to_the_manager(tmp_pat
                 "X-Bitbeard-Account": "deckhand",
                 "X-Bitbeard-Discord": "salty#1234",
             },
-            json={"magnet_link": "magnet:?xt=urn:btih:abc", "category": "Movie"},
+            json={"magnet_link": "magnet:?xt=urn:btih:abc", "category": "Movies"},
         )
 
     assert response.status_code == 200
     # The acting Account wins; the Discord name is the fallback.
-    assert manager.submitted == [("magnet:?xt=urn:btih:abc", "Movie", "deckhand")]
+    assert manager.submitted == [("magnet:?xt=urn:btih:abc", "Movies", "deckhand")]
 
 
 def test_download_endpoint_falls_back_to_the_discord_name_as_actor(tmp_path):
@@ -127,11 +127,11 @@ def test_download_endpoint_falls_back_to_the_discord_name_as_actor(tmp_path):
         response = client.post(
             "/download",
             headers={**AUTH, "X-Bitbeard-Discord": "salty#1234"},
-            json={"magnet_link": "magnet:?xt=urn:btih:abc", "category": "Movie"},
+            json={"magnet_link": "magnet:?xt=urn:btih:abc", "category": "Movies"},
         )
 
     assert response.status_code == 200
-    assert manager.submitted == [("magnet:?xt=urn:btih:abc", "Movie", "salty#1234")]
+    assert manager.submitted == [("magnet:?xt=urn:btih:abc", "Movies", "salty#1234")]
 
 
 def test_cancel_endpoint_asks_the_manager_to_cancel(tmp_path):

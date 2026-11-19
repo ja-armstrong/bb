@@ -96,13 +96,17 @@
                     <!-- USER-FACING -->
                     <option value="" disabled selected>Select category</option>
                     <!-- USER-FACING -->
-                    <option value="Movie">Movie</option>
+                    <option value="Movies">Movies</option>
                     <!-- USER-FACING -->
-                    <option value="TV Show">TV Show</option>
+                    <option value="Shows">Shows</option>
                     <!-- USER-FACING -->
                     <option value="Other">Other</option>
                     <!-- USER-FACING -->
-                    <option value="Audiobook">Audiobook</option>
+                    <option value="Audiobooks">Audiobooks</option>
+                    <!-- USER-FACING -->
+                    <option value="eBooks">eBooks</option>
+                    <!-- USER-FACING -->
+                    <option value="Music">Music</option>
                 </select>
                 <!-- USER-FACING -->
                 <button type="submit">Download</button>
@@ -883,7 +887,7 @@
 
         window.moveDownload = function(id) {
             <!-- USER-FACING -->
-            const category = prompt("Move to Category (Movie, TV Show, Audiobook, Other):", "Movie");
+            const category = prompt("Move to Category (Movies, Shows, Audiobooks, eBooks, Music, Other):", "Movies");
             if (category && category.trim()) {
                 return mediaAction(id, "move", { category: category.trim() });
             }

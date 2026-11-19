@@ -147,7 +147,7 @@ def test_an_audiobook_submission_lands_under_the_audiobook_subdirectory(
     tmp_path,
 ):
     # End to end for ticket #27: the ownership record is opened under the
-    # Audiobook Category, the torrent is added into its per-Download
+    # Audiobooks Category, the torrent is added into its per-Download
     # directory beneath the Media Root, and the directory is created.
     qbt = FakeQbt()
     config = make_config(tmp_path)
@@ -160,15 +160,15 @@ def test_an_audiobook_submission_lands_under_the_audiobook_subdirectory(
     record = ledger.open_download(
         account_id=None,
         discord_name="deckhand",
-        title="Some Audiobook",
-        category="Audiobook",
+        title="Some Audiobooks",
+        category="Audiobooks",
         size_bytes=0,
     )
 
     async def run():
         task = manager.submit(
             "magnet:?xt=urn:btih:abc",
-            "Audiobook",
+            "Audiobooks",
             actor="discord:deckhand",
             record=record,
         )
@@ -178,10 +178,10 @@ def test_an_audiobook_submission_lands_under_the_audiobook_subdirectory(
 
     save_path = qbt.add_calls[0]["save_path"]
     assert save_path == os.path.join(
-        config.base_download_dir, "Audiobook", str(record.id)
+        config.base_download_dir, "Audiobooks", str(record.id)
     )
     row = get_row(config.db_path, record.id)
-    assert row["category"] == "Audiobook"
+    assert row["category"] == "Audiobooks"
     assert row["save_path"] == save_path
     assert os.path.isdir(save_path)
 
@@ -197,16 +197,16 @@ def test_open_download_records_the_owning_account(tmp_path):
     record = ledger.open_download(
         account_id=account_id,
         discord_name=None,
-        title="Some Movie",
-        category="Movie",
+        title="Some Movies",
+        category="Movies",
         size_bytes=500,
     )
 
     row = get_row(config.db_path, record.id)
     assert row["account"] == account_id
     assert row["discord_name"] is None
-    assert row["name"] == "Some Movie"
-    assert row["category"] == "Movie"
+    assert row["name"] == "Some Movies"
+    assert row["category"] == "Movies"
     assert row["size_bytes"] == 500
     assert row["status"] == "in_flight"
     assert row["submitted_at"] is not None
@@ -214,7 +214,7 @@ def test_open_download_records_the_owning_account(tmp_path):
     # The Download gets its own directory under the Category's, so its
     # files are deletable and accountable without touching neighbours.
     assert row["save_path"] == os.path.join(
-        config.base_download_dir, "Movie", str(record.id)
+        config.base_download_dir, "Movies", str(record.id)
     )
     assert record.save_path == row["save_path"]
 
@@ -229,15 +229,15 @@ def test_open_download_places_audiobook_downloads_in_its_subdirectory(
     record = ledger.open_download(
         account_id=None,
         discord_name="deckhand",
-        title="Some Audiobook",
-        category="Audiobook",
+        title="Some Audiobooks",
+        category="Audiobooks",
         size_bytes=500,
     )
 
     row = get_row(config.db_path, record.id)
-    assert row["category"] == "Audiobook"
+    assert row["category"] == "Audiobooks"
     assert row["save_path"] == os.path.join(
-        config.base_download_dir, "Audiobook", str(record.id)
+        config.base_download_dir, "Audiobooks", str(record.id)
     )
     assert record.save_path == row["save_path"]
 
@@ -249,7 +249,7 @@ def test_open_download_charges_the_counter_at_submit(tmp_path):
 
     ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=500,
+        category="Movies", size_bytes=500,
     )
 
     # The In-flight size counts against the owner immediately.
@@ -291,7 +291,7 @@ def test_discovery_records_the_real_torrent_name(tmp_path):
     ledger = make_ledger(config)
     record = ledger.open_download(
         account_id=None, discord_name=None, title="Torznab Title",
-        category="Movie", size_bytes=0,
+        category="Movies", size_bytes=0,
     )
 
     record.discovered("qBittorrents Real Name")
@@ -304,11 +304,11 @@ def test_completion_records_actual_size_and_adjusts_the_counter(tmp_path):
     ledger = make_ledger(config)
     account_id = make_account(config.db_path)
     record = ledger.open_download(
-        account_id=account_id, discord_name=None, title="Some Movie",
-        category="Movie", size_bytes=500,
+        account_id=account_id, discord_name=None, title="Some Movies",
+        category="Movies", size_bytes=500,
     )
 
-    record.completed("Some Movie", 400)
+    record.completed("Some Movies", 400)
 
     row = get_row(config.db_path, record.id)
     assert row["status"] == "completed"
@@ -324,10 +324,10 @@ def test_completion_when_actual_matches_projected_keeps_the_counter(tmp_path):
     account_id = make_account(config.db_path)
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=400,
+        category="Movies", size_bytes=400,
     )
 
-    record.completed("Some Movie", 400)
+    record.completed("Some Movies", 400)
 
     assert quota_used(config.db_path, account_id) == 400
 
@@ -342,7 +342,7 @@ def test_completion_of_an_unlinked_download_is_recorded_without_a_counter(
         category="Other", size_bytes=0,
     )
 
-    record.completed("Some Movie", 400)
+    record.completed("Some Movies", 400)
 
     assert get_row(config.db_path, record.id)["status"] == "completed"
 
@@ -353,7 +353,7 @@ def test_release_deletes_the_record_and_frees_the_counter(tmp_path):
     account_id = make_account(config.db_path)
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=500,
+        category="Movies", size_bytes=500,
     )
 
     record.release()
@@ -368,7 +368,7 @@ def test_cancel_zeroes_the_record_and_frees_the_counter(tmp_path):
     account_id = make_account(config.db_path)
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=500,
+        category="Movies", size_bytes=500,
     )
 
     record.cancelled()
@@ -396,9 +396,9 @@ def test_delete_download_removes_files_record_and_quota(tmp_path):
     account_id = make_account(config.db_path)
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=0,
+        category="Movies", size_bytes=0,
     )
-    write_files(config.base_download_dir, "Movie", str(record.id))
+    write_files(config.base_download_dir, "Movies", str(record.id))
 
     deleted = ledger.delete_download(record.id)
 
@@ -410,11 +410,11 @@ def test_delete_download_removes_files_record_and_quota(tmp_path):
 
 def test_delete_download_refuses_while_the_torrent_is_still_active(tmp_path):
     config = make_config(tmp_path)
-    download_dir = write_files(config.base_download_dir, "Movie", "7")
+    download_dir = write_files(config.base_download_dir, "Movies", "7")
 
     class ActiveQbt:
         def torrents_info(self):
-            torrent = FakeTorrent("h", "Some Movie")
+            torrent = FakeTorrent("h", "Some Movies")
             torrent.save_path = download_dir
             return [torrent]
 
@@ -425,7 +425,7 @@ def test_delete_download_refuses_while_the_torrent_is_still_active(tmp_path):
         cursor = connection.execute(
             "INSERT INTO downloads (account, name, category, save_path,"
             " size_bytes, status, submitted_at)"
-            " VALUES (1, 'Some Movie', 'Movie', ?, 0, 'in_flight', ?)",
+            " VALUES (1, 'Some Movies', 'Movies', ?, 0, 'in_flight', ?)",
             (download_dir, db.utc_now()),
         )
         connection.commit()
@@ -473,13 +473,13 @@ def test_full_lifecycle_keeps_the_record_after_the_torrent_is_swept(tmp_path):
     )
 
     record = ledger.open_download(
-        account_id=account_id, discord_name=None, title="Some Movie",
-        category="Movie", size_bytes=500,
+        account_id=account_id, discord_name=None, title="Some Movies",
+        category="Movies", size_bytes=500,
     )
 
     async def run():
         await manager.submit(
-            "magnet:?xt=urn:btih:abc", "Movie", actor="deckhand", record=record
+            "magnet:?xt=urn:btih:abc", "Movies", actor="deckhand", record=record
         )
 
     asyncio.run(run())
@@ -493,10 +493,10 @@ def test_full_lifecycle_keeps_the_record_after_the_torrent_is_swept(tmp_path):
     assert quota_used(config.db_path, account_id) == 4096
     # Lifecycle Events carry the download id.
     assert announcer.submitted == [
-        ("Test Torrent", "Movie", "deckhand", record.id)
+        ("Test Torrent", "Movies", "deckhand", record.id)
     ]
     assert announcer.completed == [
-        ("Test Torrent", "Movie", "deckhand", record.id)
+        ("Test Torrent", "Movies", "deckhand", record.id)
     ]
 
 
@@ -507,11 +507,11 @@ def test_the_torrent_is_added_into_the_records_own_directory(tmp_path):
     manager, _, _, _ = make_manager(qbt=qbt, config=config, tmp_path=tmp_path)
     record = ledger.open_download(
         account_id=None, discord_name=None, title=None,
-        category="Movie", size_bytes=0,
+        category="Movies", size_bytes=0,
     )
 
     async def run():
-        await manager.submit("magnet:?xt=urn:btih:abc", "Movie", record=record)
+        await manager.submit("magnet:?xt=urn:btih:abc", "Movies", record=record)
 
     asyncio.run(run())
 
@@ -532,11 +532,11 @@ def test_a_failed_add_releases_the_record(tmp_path):
     )
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=500,
+        category="Movies", size_bytes=500,
     )
 
     async def run():
-        await manager.submit("magnet:?xt=urn:btih:abc", "Movie", record=record)
+        await manager.submit("magnet:?xt=urn:btih:abc", "Movies", record=record)
 
     asyncio.run(run())
 
@@ -553,7 +553,7 @@ def test_cancel_all_cancels_the_records_of_swept_torrents(tmp_path):
     manager, _, _, _ = make_manager(qbt=qbt, config=config, tmp_path=tmp_path)
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=500,
+        category="Movies", size_bytes=500,
     )
     # Pretend the torrent is in qBittorrent, discovered by its monitor.
     torrent = FakeTorrent("hash1", "Test Torrent")
@@ -577,11 +577,11 @@ def test_reconcile_corrects_a_completed_records_size_from_disk(tmp_path, caplog)
     account_id = make_account(config.db_path)
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=0,
+        category="Movies", size_bytes=0,
     )
-    record.completed("Some Movie", 3 * DRIFT_WARN_BYTES)
+    record.completed("Some Movies", 3 * DRIFT_WARN_BYTES)
     # Out-of-band change: an admin removed part of the Download's files.
-    write_files(config.base_download_dir, "Movie", str(record.id))
+    write_files(config.base_download_dir, "Movies", str(record.id))
 
     summary = ledger.reconcile()
 
@@ -602,10 +602,10 @@ def test_reconcile_marks_a_stuck_in_flight_download_completed_from_disk(
     ledger = make_ledger(config)
     account_id = make_account(config.db_path)
     record = ledger.open_download(
-        account_id=account_id, discord_name=None, title="Some Movie",
-        category="Movie", size_bytes=500,
+        account_id=account_id, discord_name=None, title="Some Movies",
+        category="Movies", size_bytes=500,
     )
-    write_files(config.base_download_dir, "Movie", str(record.id))
+    write_files(config.base_download_dir, "Movies", str(record.id))
 
     summary = ledger.reconcile()
 
@@ -624,7 +624,7 @@ def test_reconcile_releases_an_in_flight_download_that_never_materialized(
     account_id = make_account(config.db_path)
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=500,
+        category="Movies", size_bytes=500,
     )
 
     summary = ledger.reconcile()
@@ -640,7 +640,7 @@ def test_reconcile_leaves_an_active_in_flight_download_alone(tmp_path):
     account_id = make_account(config.db_path)
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=500,
+        category="Movies", size_bytes=500,
     )
     os.makedirs(record.save_path, exist_ok=True)  # empty: nothing on disk yet
 
@@ -672,10 +672,10 @@ def test_reconcile_corrects_a_drifted_usage_counter(tmp_path, caplog):
     account_id = make_account(config.db_path)
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=0,
+        category="Movies", size_bytes=0,
     )
-    record.completed("Some Movie", 1024)
-    write_files(config.base_download_dir, "Movie", str(record.id))
+    record.completed("Some Movies", 1024)
+    write_files(config.base_download_dir, "Movies", str(record.id))
     # Out-of-band change: the counter was clobbered beyond the warn threshold.
     db.set_quota_used(config.db_path, account_id, 2 * DRIFT_WARN_BYTES)
 
@@ -694,7 +694,7 @@ def test_reconcile_resets_a_counter_whose_records_are_gone(tmp_path):
     account_id = make_account(config.db_path)
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=1024,
+        category="Movies", size_bytes=1024,
     )
     record.release()
     db.set_quota_used(config.db_path, account_id, 1024)
@@ -759,7 +759,7 @@ def test_download_endpoint_opens_the_ownership_record_for_the_account(
             },
             json={
                 "magnet_link": "magnet:?xt=urn:btih:abc",
-                "category": "Movie",
+                "category": "Movies",
                 "size_bytes": 2048,
                 "title": None,
             },
@@ -789,7 +789,7 @@ def test_download_endpoint_records_unlinked_actors_by_discord_name(tmp_path):
             headers={**AUTH, "X-Bitbeard-Discord": "discord:salty"},
             json={
                 "magnet_link": "magnet:?xt=urn:btih:abc",
-                "category": "Movie",
+                "category": "Movies",
                 "size_bytes": 0,
                 "title": None,
             },
@@ -811,7 +811,7 @@ def test_download_endpoint_defaults_to_unknown_size_and_title(tmp_path):
         response = client.post(
             "/download",
             headers=AUTH,
-            json={"magnet_link": "magnet:?xt=urn:btih:abc", "category": "Movie"},
+            json={"magnet_link": "magnet:?xt=urn:btih:abc", "category": "Movies"},
         )
 
     row = get_row(config.db_path, response.json()["download_id"])
@@ -827,10 +827,10 @@ def test_delete_endpoint_hard_deletes_a_finished_download(tmp_path):
     account_id = make_account(config.db_path)
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=0,
+        category="Movies", size_bytes=0,
     )
-    record.completed("Some Movie", 1024)
-    write_files(config.base_download_dir, "Movie", str(record.id))
+    record.completed("Some Movies", 1024)
+    write_files(config.base_download_dir, "Movies", str(record.id))
 
     with TestClient(app) as client:
         response = client.post(
@@ -839,7 +839,7 @@ def test_delete_endpoint_hard_deletes_a_finished_download(tmp_path):
         )
 
     assert response.status_code == 200
-    assert response.json() == {"deleted": record.id, "name": "Some Movie"}
+    assert response.json() == {"deleted": record.id, "name": "Some Movies"}
     assert not os.path.exists(record.save_path)
     assert get_row(config.db_path, record.id) is None
     assert quota_used(config.db_path, account_id) == 0
@@ -852,7 +852,7 @@ def test_delete_endpoint_reports_unknown_and_active_downloads(tmp_path):
     db.initialize(config.db_path)
     record = ledger.open_download(
         account_id=None, discord_name="discord:salty", title=None,
-        category="Movie", size_bytes=0,
+        category="Movies", size_bytes=0,
     )
     # The torrent is still in qBittorrent under the record's save path.
     torrent = FakeTorrent("h1", "Test Torrent")

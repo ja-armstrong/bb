@@ -102,8 +102,8 @@ def test_every_lifecycle_event_is_posted_to_the_api():
     announcer = make_announcer(transport)
 
     async def run():
-        await announcer.announce_submitted("Some Movie", "Movie", actor="deckhand")
-        await announcer.announce_completed("Some Movie", "Movie", actor="deckhand")
+        await announcer.announce_submitted("Some Movies", "Movies", actor="deckhand")
+        await announcer.announce_completed("Some Movies", "Movies", actor="deckhand")
         await announcer.announce_all_done()
 
     asyncio.run(run())
@@ -121,15 +121,15 @@ def test_events_carry_the_actor_torrent_name_and_category():
     announcer = make_announcer(transport)
 
     async def run():
-        await announcer.announce_submitted("Some Movie", "Movie", actor="deckhand")
+        await announcer.announce_submitted("Some Movies", "Movies", actor="deckhand")
 
     asyncio.run(run())
 
     payload = transport.calls[0]["payload"]
     assert payload == {
         "event": "submitted",
-        "torrent_name": "Some Movie",
-        "category": "Movie",
+        "torrent_name": "Some Movies",
+        "category": "Movies",
         "actor": "deckhand",
         "download_id": None,
     }
@@ -140,8 +140,8 @@ def test_completion_events_are_mirrored_to_the_bot_webhook():
     announcer = make_announcer(transport)
 
     async def run():
-        await announcer.announce_submitted("Some Movie", "Movie")
-        await announcer.announce_completed("Some Movie", "Movie")
+        await announcer.announce_submitted("Some Movies", "Movies")
+        await announcer.announce_completed("Some Movies", "Movies")
         await announcer.announce_all_done()
 
     asyncio.run(run())
@@ -156,7 +156,7 @@ def test_events_carry_the_bearer_token():
     announcer = make_announcer(transport)
 
     async def run():
-        await announcer.announce_completed("Some Movie", "Movie")
+        await announcer.announce_completed("Some Movies", "Movies")
 
     asyncio.run(run())
 
@@ -169,7 +169,7 @@ def test_a_dead_api_sink_does_not_break_the_bot_mirror_or_raise():
     announcer = make_announcer(transport)
 
     async def run():
-        await announcer.announce_completed("Some Movie", "Movie")
+        await announcer.announce_completed("Some Movies", "Movies")
 
     asyncio.run(run())
 
@@ -182,7 +182,7 @@ def test_a_dead_bot_sink_does_not_raise():
     announcer = make_announcer(transport)
 
     async def run():
-        await announcer.announce_completed("Some Movie", "Movie")
+        await announcer.announce_completed("Some Movies", "Movies")
 
     asyncio.run(run())
 
@@ -194,7 +194,7 @@ def test_bot_mirror_is_skipped_without_a_bot_url():
     announcer = make_announcer(transport, bot_base_url=None)
 
     async def run():
-        await announcer.announce_completed("Some Movie", "Movie")
+        await announcer.announce_completed("Some Movies", "Movies")
 
     asyncio.run(run())
 
@@ -211,7 +211,7 @@ def test_full_lifecycle_through_the_manager_emits_submitted_completed_drained():
     manager = DownloadManager(qbt, make_config(), announcer, poll_interval=0.01)
 
     async def run():
-        task = manager.submit("magnet:?xt=urn:btih:abc", "Movie", actor="deckhand")
+        task = manager.submit("magnet:?xt=urn:btih:abc", "Movies", actor="deckhand")
         await task
 
     asyncio.run(run())

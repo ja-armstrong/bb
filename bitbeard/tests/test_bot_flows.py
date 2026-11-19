@@ -172,7 +172,7 @@ def test_choosing_a_result_then_a_category_submits_through_the_api(
 
     prompt = interaction.response.views[0]
     assert isinstance(prompt, CategorySelectView)
-    choose(select_of(prompt), "Movie")
+    choose(select_of(prompt), "Movies")
     prompt_interaction = FakeInteraction()
     asyncio.run(prompt.choose_category(prompt_interaction))
 
@@ -181,7 +181,7 @@ def test_choosing_a_result_then_a_category_submits_through_the_api(
     assert call["url"] == "http://api.test/download"
     assert call["json"] == {
         "magnet_link": "magnet:?xt=urn:btih:0",
-        "category": "Movie",
+        "category": "Movies",
         # The Torznab size and title ride along for the quota pre-check
         # and the ownership record.
         "size_bytes": int(2.0 * 1024 ** 3),
@@ -234,7 +234,7 @@ def test_choosing_a_category_submits_the_magnet_through_the_api(api, transport):
     asyncio.run(discord_front.submit_magnet(message, api))
 
     _, view = message.channel.sent[0]
-    choose(select_of(view), "TV Show")
+    choose(select_of(view), "Shows")
     interaction = FakeInteraction()
     asyncio.run(view.choose_category(interaction))
 
@@ -243,7 +243,7 @@ def test_choosing_a_category_submits_the_magnet_through_the_api(api, transport):
     assert call["url"] == "http://api.test/download"
     assert call["json"] == {
         "magnet_link": "magnet:?xt=urn:btih:abc",
-        "category": "TV Show",
+        "category": "Shows",
         "size_bytes": 0,
         "title": None,
     }
@@ -258,7 +258,7 @@ def test_choosing_audiobook_submits_the_magnet_through_the_api(
     asyncio.run(discord_front.submit_magnet(message, api))
 
     _, view = message.channel.sent[0]
-    choose(select_of(view), "Audiobook")
+    choose(select_of(view), "Audiobooks")
     interaction = FakeInteraction()
     asyncio.run(view.choose_category(interaction))
 
@@ -267,7 +267,7 @@ def test_choosing_audiobook_submits_the_magnet_through_the_api(
     assert call["url"] == "http://api.test/download"
     assert call["json"] == {
         "magnet_link": "magnet:?xt=urn:btih:abc",
-        "category": "Audiobook",
+        "category": "Audiobooks",
         "size_bytes": 0,
         "title": None,
     }
@@ -285,7 +285,7 @@ def test_a_quota_exceeded_submission_is_relayed(api, transport):
     asyncio.run(discord_front.submit_magnet(message, api))
 
     _, view = message.channel.sent[0]
-    choose(select_of(view), "Movie")
+    choose(select_of(view), "Movies")
     interaction = FakeInteraction()
     asyncio.run(view.choose_category(interaction))
 
@@ -303,14 +303,14 @@ def make_media_payload():
         "downloads": [
             {
                 "id": 1,
-                "name": "Movie A",
+                "name": "Movies A",
                 "status": "in_flight",
                 "progress": "42.00%",
                 "eta": "3m",
             },
             {
                 "id": 2,
-                "name": "Movie B",
+                "name": "Movies B",
                 "status": "completed",
                 "size_bytes": 1000,
             },
@@ -330,9 +330,9 @@ def test_progress_lists_the_actors_in_flight_downloads(api, transport):
     assert call["headers"][DISCORD_ID_HEADER] == "123456789"
     content, view = message.channel.sent[0]
     assert content.startswith("Downloads:")
-    assert "Movie A — 42.00% (ETA 3m)" in content
+    assert "Movies A — 42.00% (ETA 3m)" in content
     # Completed rows are not progress.
-    assert "Movie B" not in content
+    assert "Movies B" not in content
 
 
 def test_progress_with_nothing_in_flight_says_so(api, transport):

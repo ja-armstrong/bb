@@ -183,17 +183,17 @@ def test_browse_lists_directories_first_then_files(tmp_path):
     files, disk = make_files(tmp_path)
     base = disk_path(tmp_path)
     disk.add_dir(base)
-    disk.add_dir(os.path.join(base, "TV Show"))
+    disk.add_dir(os.path.join(base, "Shows"))
     disk.add_file(os.path.join(base, "zebra.bin"), size=2048)
-    disk.add_dir(os.path.join(base, "Movie"))
+    disk.add_dir(os.path.join(base, "Movies"))
     disk.add_file(os.path.join(base, "alpha.txt"), size=10)
 
     listing = files.browse("")
 
     assert listing["path"] == ""
     assert [(entry["name"], entry["is_dir"]) for entry in listing["entries"]] == [
-        ("Movie", True),
-        ("TV Show", True),
+        ("Movies", True),
+        ("Shows", True),
         ("alpha.txt", False),
         ("zebra.bin", False),
     ]
@@ -202,11 +202,11 @@ def test_browse_lists_directories_first_then_files(tmp_path):
 
 def test_browse_of_a_subdirectory_returns_its_relative_path(tmp_path):
     files, disk = make_files(tmp_path)
-    disk.add_dir(disk_path(tmp_path, "Movie", "Scene"))
+    disk.add_dir(disk_path(tmp_path, "Movies", "Scene"))
 
-    listing = files.browse("Movie/Scene")
+    listing = files.browse("Movies/Scene")
 
-    assert listing["path"] == "Movie/Scene"
+    assert listing["path"] == "Movies/Scene"
     assert listing["entries"] == []
 
 
@@ -214,15 +214,15 @@ def test_browse_of_an_unknown_path_is_refused(tmp_path):
     files, _ = make_files(tmp_path)
 
     with pytest.raises(FileNotFoundError):
-        files.browse("Movie/Missing")
+        files.browse("Movies/Missing")
 
 
 def test_browse_of_a_file_is_refused(tmp_path):
     files, disk = make_files(tmp_path)
-    disk.add_file(disk_path(tmp_path, "Movie", "file.bin"))
+    disk.add_file(disk_path(tmp_path, "Movies", "file.bin"))
 
     with pytest.raises((FileNotFoundError, NotADirectoryError)):
-        files.browse("Movie/file.bin")
+        files.browse("Movies/file.bin")
 
 
 # --- The sandbox -------------------------------------------------------------
@@ -233,9 +233,9 @@ def test_browse_of_a_file_is_refused(tmp_path):
     [
         "../outside",
         "../../etc/passwd",
-        "Movie/../../outside",
+        "Movies/../../outside",
         "/etc/passwd",
-        "Movie/file\x00.bin",
+        "Movies/file\x00.bin",
     ],
 )
 def test_operations_refuse_paths_that_escape_the_media_root(tmp_path, relative):
@@ -248,7 +248,7 @@ def test_operations_refuse_paths_that_escape_the_media_root(tmp_path, relative):
     with pytest.raises(OutsideMediaRootError):
         files.rename(relative, "x")
     with pytest.raises(OutsideMediaRootError):
-        files.move(relative, "Movie")
+        files.move(relative, "Movies")
 
     assert disk.calls == []
 
@@ -256,11 +256,11 @@ def test_operations_refuse_paths_that_escape_the_media_root(tmp_path, relative):
 def test_operations_tolerate_dot_and_slash_noise(tmp_path):
     files, _ = make_files(tmp_path)
     disk = files._disk
-    disk.add_dir(disk_path(tmp_path, "Movie"))
+    disk.add_dir(disk_path(tmp_path, "Movies"))
 
-    listing = files.browse("./Movie/")
+    listing = files.browse("./Movies/")
 
-    assert listing["path"] == "Movie"
+    assert listing["path"] == "Movies"
 
 
 # --- Delete -------------------------------------------------------------------
@@ -268,28 +268,28 @@ def test_operations_tolerate_dot_and_slash_noise(tmp_path):
 
 def test_delete_removes_a_file(tmp_path):
     files, disk = make_files(tmp_path)
-    disk.add_file(disk_path(tmp_path, "Movie", "file.bin"))
+    disk.add_file(disk_path(tmp_path, "Movies", "file.bin"))
 
-    result = files.delete("Movie/file.bin")
+    result = files.delete("Movies/file.bin")
 
-    assert result == {"deleted": "Movie/file.bin"}
-    assert not disk.exists(disk_path(tmp_path, "Movie", "file.bin"))
+    assert result == {"deleted": "Movies/file.bin"}
+    assert not disk.exists(disk_path(tmp_path, "Movies", "file.bin"))
 
 
 def test_delete_removes_a_directory_tree(tmp_path):
     files, disk = make_files(tmp_path)
-    disk.add_file(disk_path(tmp_path, "Movie", "inner", "file.bin"))
+    disk.add_file(disk_path(tmp_path, "Movies", "inner", "file.bin"))
 
-    files.delete("Movie")
+    files.delete("Movies")
 
-    assert not disk.exists(disk_path(tmp_path, "Movie"))
+    assert not disk.exists(disk_path(tmp_path, "Movies"))
 
 
 def test_delete_of_an_unknown_path_is_refused(tmp_path):
     files, _ = make_files(tmp_path)
 
     with pytest.raises(FileNotFoundError):
-        files.delete("Movie/Missing")
+        files.delete("Movies/Missing")
 
 
 # --- Rename -------------------------------------------------------------------
@@ -297,43 +297,43 @@ def test_delete_of_an_unknown_path_is_refused(tmp_path):
 
 def test_rename_moves_a_directory_within_its_parent(tmp_path):
     files, disk = make_files(tmp_path)
-    disk.add_file(disk_path(tmp_path, "Movie", "Old Name", "file.bin"))
+    disk.add_file(disk_path(tmp_path, "Movies", "Old Name", "file.bin"))
 
-    result = files.rename("Movie/Old Name", "New Name")
+    result = files.rename("Movies/Old Name", "New Name")
 
-    assert result == {"renamed": "Movie/Old Name", "to": "Movie/New Name"}
-    assert disk.is_file(disk_path(tmp_path, "Movie", "New Name", "file.bin"))
-    assert not disk.exists(disk_path(tmp_path, "Movie", "Old Name"))
+    assert result == {"renamed": "Movies/Old Name", "to": "Movies/New Name"}
+    assert disk.is_file(disk_path(tmp_path, "Movies", "New Name", "file.bin"))
+    assert not disk.exists(disk_path(tmp_path, "Movies", "Old Name"))
 
 
 def test_rename_of_a_file_keeps_the_directory(tmp_path):
     files, disk = make_files(tmp_path)
-    disk.add_file(disk_path(tmp_path, "Movie", "old.txt"))
+    disk.add_file(disk_path(tmp_path, "Movies", "old.txt"))
 
-    files.rename("Movie/old.txt", "new.txt")
+    files.rename("Movies/old.txt", "new.txt")
 
-    assert disk.is_file(disk_path(tmp_path, "Movie", "new.txt"))
-    assert disk.is_dir(disk_path(tmp_path, "Movie"))
+    assert disk.is_file(disk_path(tmp_path, "Movies", "new.txt"))
+    assert disk.is_dir(disk_path(tmp_path, "Movies"))
 
 
 def test_rename_refuses_a_taken_target(tmp_path):
     files, _ = make_files(tmp_path)
     disk = files._disk
-    disk.add_dir(disk_path(tmp_path, "Movie"))
-    disk.add_dir(disk_path(tmp_path, "Movie", "A"))
-    disk.add_file(disk_path(tmp_path, "Movie", "B", "keep.bin"))
+    disk.add_dir(disk_path(tmp_path, "Movies"))
+    disk.add_dir(disk_path(tmp_path, "Movies", "A"))
+    disk.add_file(disk_path(tmp_path, "Movies", "B", "keep.bin"))
 
     with pytest.raises(PathTakenError):
-        files.rename("Movie/A", "B")
+        files.rename("Movies/A", "B")
 
 
 def test_rename_refuses_names_that_could_escape(tmp_path):
     files, disk = make_files(tmp_path)
-    disk.add_dir(disk_path(tmp_path, "Movie"))
+    disk.add_dir(disk_path(tmp_path, "Movies"))
 
     for bad_name in ("../escape", "sub/inner", "back\\slash", "", "..", "."):
         with pytest.raises(Exception) as excinfo:
-            files.rename("Movie", bad_name)
+            files.rename("Movies", bad_name)
         assert not isinstance(excinfo.value, PathTakenError)
 
     assert disk.calls == []
@@ -342,11 +342,11 @@ def test_rename_refuses_names_that_could_escape(tmp_path):
 def test_rename_to_the_same_name_is_a_no_op(tmp_path):
     files, _ = make_files(tmp_path)
     disk = files._disk
-    disk.add_dir(disk_path(tmp_path, "Movie"))
+    disk.add_dir(disk_path(tmp_path, "Movies"))
 
-    result = files.rename("Movie", "Movie")
+    result = files.rename("Movies", "Movies")
 
-    assert result == {"renamed": "Movie", "to": "Movie"}
+    assert result == {"renamed": "Movies", "to": "Movies"}
     assert disk.calls == []
 
 
@@ -355,42 +355,42 @@ def test_rename_to_the_same_name_is_a_no_op(tmp_path):
 
 def test_move_relocates_into_another_directory(tmp_path):
     files, disk = make_files(tmp_path)
-    disk.add_file(disk_path(tmp_path, "Movie", "film.bin"))
-    disk.add_dir(disk_path(tmp_path, "TV Show"))
+    disk.add_file(disk_path(tmp_path, "Movies", "film.bin"))
+    disk.add_dir(disk_path(tmp_path, "Shows"))
 
-    result = files.move("Movie/film.bin", "TV Show")
+    result = files.move("Movies/film.bin", "Shows")
 
-    assert result == {"moved": "Movie/film.bin", "to": "TV Show/film.bin"}
-    assert disk.is_file(disk_path(tmp_path, "TV Show", "film.bin"))
-    assert not disk.exists(disk_path(tmp_path, "Movie", "film.bin"))
+    assert result == {"moved": "Movies/film.bin", "to": "Shows/film.bin"}
+    assert disk.is_file(disk_path(tmp_path, "Shows", "film.bin"))
+    assert not disk.exists(disk_path(tmp_path, "Movies", "film.bin"))
 
 
 def test_move_into_a_missing_directory_is_refused(tmp_path):
     files, _ = make_files(tmp_path)
     disk = files._disk
-    disk.add_file(disk_path(tmp_path, "Movie", "film.bin"))
+    disk.add_file(disk_path(tmp_path, "Movies", "film.bin"))
 
     with pytest.raises(FileNotFoundError):
-        files.move("Movie/film.bin", "TV Show")
+        files.move("Movies/film.bin", "Shows")
 
 
 def test_move_onto_an_occupied_target_is_refused(tmp_path):
     files, _ = make_files(tmp_path)
     disk = files._disk
-    disk.add_file(disk_path(tmp_path, "Movie", "film.bin"))
-    disk.add_file(disk_path(tmp_path, "TV Show", "film.bin"))
+    disk.add_file(disk_path(tmp_path, "Movies", "film.bin"))
+    disk.add_file(disk_path(tmp_path, "Shows", "film.bin"))
 
     with pytest.raises(PathTakenError):
-        files.move("Movie/film.bin", "TV Show")
+        files.move("Movies/film.bin", "Shows")
 
 
 def test_move_into_the_root(tmp_path):
     files, disk = make_files(tmp_path)
-    disk.add_file(disk_path(tmp_path, "Movie", "film.bin"))
+    disk.add_file(disk_path(tmp_path, "Movies", "film.bin"))
 
-    result = files.move("Movie/film.bin", "")
+    result = files.move("Movies/film.bin", "")
 
-    assert result == {"moved": "Movie/film.bin", "to": "film.bin"}
+    assert result == {"moved": "Movies/film.bin", "to": "film.bin"}
     assert disk.is_file(disk_path(tmp_path, "film.bin"))
 
 
@@ -400,64 +400,64 @@ def test_move_into_the_root(tmp_path):
 def test_delete_of_a_file_inside_an_active_torrents_save_path_is_refused(
     tmp_path,
 ):
-    save_path = disk_path(tmp_path, "Movie", "5")
+    save_path = disk_path(tmp_path, "Movies", "5")
     files, _ = make_files(tmp_path, qbt=ActiveQbt(save_path))
     files._disk.add_file(os.path.join(save_path, "file.bin"))
 
     with pytest.raises(ProtectedPathError):
-        files.delete("Movie/5/file.bin")
+        files.delete("Movies/5/file.bin")
 
     assert files._disk.exists(os.path.join(save_path, "file.bin"))
 
 
 def test_delete_of_the_active_torrents_save_path_itself_is_refused(tmp_path):
-    save_path = disk_path(tmp_path, "Movie", "5")
+    save_path = disk_path(tmp_path, "Movies", "5")
     files, _ = make_files(tmp_path, qbt=ActiveQbt(save_path))
     files._disk.add_dir(save_path)
 
     with pytest.raises(ProtectedPathError):
-        files.delete("Movie/5")
+        files.delete("Movies/5")
 
 
 def test_delete_of_an_ancestor_of_a_save_path_is_refused(tmp_path):
     """Deleting the whole Category would destroy the torrent with it."""
-    save_path = disk_path(tmp_path, "Movie", "5")
+    save_path = disk_path(tmp_path, "Movies", "5")
     files, _ = make_files(tmp_path, qbt=ActiveQbt(save_path))
     files._disk.add_dir(save_path)
 
     with pytest.raises(ProtectedPathError):
-        files.delete("Movie")
+        files.delete("Movies")
 
 
 def test_sibling_paths_are_not_protected(tmp_path):
-    save_path = disk_path(tmp_path, "Movie", "5")
+    save_path = disk_path(tmp_path, "Movies", "5")
     files, _ = make_files(tmp_path, qbt=ActiveQbt(save_path))
-    files._disk.add_dir(disk_path(tmp_path, "Movie", "6"))
+    files._disk.add_dir(disk_path(tmp_path, "Movies", "6"))
 
-    files.delete("Movie/6")  # no refusal
+    files.delete("Movies/6")  # no refusal
 
 
 def test_rename_and_move_refuse_protected_targets(tmp_path):
-    save_path = disk_path(tmp_path, "Movie", "5")
+    save_path = disk_path(tmp_path, "Movies", "5")
     files, _ = make_files(tmp_path, qbt=ActiveQbt(save_path))
     disk = files._disk
-    disk.add_dir(disk_path(tmp_path, "Movie", "A"))
+    disk.add_dir(disk_path(tmp_path, "Movies", "A"))
     disk.add_file(os.path.join(save_path, "file.bin"))
-    disk.add_file(disk_path(tmp_path, "TV Show", "film.bin"))
+    disk.add_file(disk_path(tmp_path, "Shows", "film.bin"))
 
     with pytest.raises(ProtectedPathError):
-        files.rename("Movie/A", "5")
+        files.rename("Movies/A", "5")
     with pytest.raises(ProtectedPathError):
-        files.move("TV Show/film.bin", "Movie/5")
+        files.move("Shows/film.bin", "Movies/5")
 
 
 def test_rename_of_a_source_inside_a_save_path_is_refused(tmp_path):
-    save_path = disk_path(tmp_path, "Movie", "5")
+    save_path = disk_path(tmp_path, "Movies", "5")
     files, _ = make_files(tmp_path, qbt=ActiveQbt(save_path))
     files._disk.add_file(os.path.join(save_path, "file.bin"))
 
     with pytest.raises(ProtectedPathError):
-        files.rename("Movie/5/file.bin", "other.bin")
+        files.rename("Movies/5/file.bin", "other.bin")
 
 
 # --- Download-record bookkeeping ----------------------------------------------
@@ -478,10 +478,10 @@ def make_record(tmp_path, *, size_bytes=1024):
     ledger = QuotaLedger(config.db_path, config.base_download_dir)
     account_id = make_account(config.db_path)
     record = ledger.open_download(
-        account_id=account_id, discord_name=None, title="Some Movie",
-        category="Movie", size_bytes=size_bytes,
+        account_id=account_id, discord_name=None, title="Some Movies",
+        category="Movies", size_bytes=size_bytes,
     )
-    record.completed("Some Movie", size_bytes)
+    record.completed("Some Movies", size_bytes)
     save_path = record.save_path
     os.makedirs(save_path, exist_ok=True)
     with open(os.path.join(save_path, "file.bin"), "wb") as handle:
@@ -554,7 +554,7 @@ def test_rename_repoints_the_downloads_save_path(tmp_path):
 def test_move_repoints_the_downloads_save_path(tmp_path):
     record, account_id, db_path = make_record(tmp_path)
     os.makedirs(
-        os.path.join(str(tmp_path / "media"), "TV Show"), exist_ok=True
+        os.path.join(str(tmp_path / "media"), "Shows"), exist_ok=True
     )
 
     manager = FileManager(
@@ -563,13 +563,13 @@ def test_move_repoints_the_downloads_save_path(tmp_path):
     )
     parent = os.path.basename(os.path.dirname(record.save_path))
     leaf = os.path.basename(record.save_path)
-    manager.move(f"{parent}/{leaf}", "TV Show")
+    manager.move(f"{parent}/{leaf}", "Shows")
 
     with closing(db.connect(db_path)) as connection:
         row = connection.execute(
             "SELECT save_path FROM downloads WHERE id = ?", (record.id,)
         ).fetchone()
-    assert os.path.basename(os.path.dirname(row["save_path"])) == "TV Show"
+    assert os.path.basename(os.path.dirname(row["save_path"])) == "Shows"
 
 
 # --- The manager HTTP surface ---------------------------------------------------
@@ -601,7 +601,7 @@ def write_file(base, *relative_parts, content=b"x"):
 
 def test_files_endpoint_lists_the_media_root(tmp_path):
     client, config = endpoint_client(tmp_path)
-    write_file(config.base_download_dir, "Movie", "file.bin")
+    write_file(config.base_download_dir, "Movies", "file.bin")
 
     with client:
         response = client.get("/files", headers=AUTH)
@@ -609,19 +609,19 @@ def test_files_endpoint_lists_the_media_root(tmp_path):
     assert response.status_code == 200
     body = response.json()
     names = {entry["name"]: entry for entry in body["entries"]}
-    assert names["Movie"]["is_dir"] is True
-    assert names["Movie"]["size_bytes"] == 0
+    assert names["Movies"]["is_dir"] is True
+    assert names["Movies"]["size_bytes"] == 0
 
 
 def test_files_endpoint_lists_a_subdirectory(tmp_path):
     client, config = endpoint_client(tmp_path)
-    write_file(config.base_download_dir, "Movie", "file.bin", content=b"abcd")
+    write_file(config.base_download_dir, "Movies", "file.bin", content=b"abcd")
 
     with client:
-        response = client.get("/files?path=Movie", headers=AUTH)
+        response = client.get("/files?path=Movies", headers=AUTH)
 
     assert response.status_code == 200
-    assert response.json()["path"] == "Movie"
+    assert response.json()["path"] == "Movies"
     entry = response.json()["entries"][0]
     assert entry == {"name": "file.bin", "is_dir": False, "size_bytes": 4}
 
@@ -638,19 +638,19 @@ def test_files_endpoint_reports_unknown_paths_as_404(tmp_path):
 
 def test_delete_endpoint_hard_deletes(tmp_path):
     client, config = endpoint_client(tmp_path)
-    write_file(config.base_download_dir, "Movie", "old", "file.bin")
+    write_file(config.base_download_dir, "Movies", "old", "file.bin")
 
     with client:
         response = client.post(
             "/files/delete",
             headers=AUTH,
-            json={"path": "Movie/old"},
+            json={"path": "Movies/old"},
         )
 
     assert response.status_code == 200
-    assert response.json() == {"deleted": "Movie/old"}
+    assert response.json() == {"deleted": "Movies/old"}
     assert not os.path.exists(
-        os.path.join(config.base_download_dir, "Movie", "old")
+        os.path.join(config.base_download_dir, "Movies", "old")
     )
 
 
@@ -670,7 +670,7 @@ def test_delete_endpoint_refuses_traversal(tmp_path):
 
 def test_delete_endpoint_refuses_protected_paths_with_409(tmp_path):
     config = make_config(tmp_path)
-    save_path = os.path.join(config.base_download_dir, "Movie", "5")
+    save_path = os.path.join(config.base_download_dir, "Movies", "5")
     os.makedirs(save_path, exist_ok=True)
 
     class ActiveOnlyQbt:
@@ -682,7 +682,7 @@ def test_delete_endpoint_refuses_protected_paths_with_409(tmp_path):
 
     with TestClient(app) as client:
         response = client.post(
-            "/files/delete", headers=AUTH, json={"path": "Movie/5"}
+            "/files/delete", headers=AUTH, json={"path": "Movies/5"}
         )
 
     assert response.status_code == 409
@@ -691,45 +691,45 @@ def test_delete_endpoint_refuses_protected_paths_with_409(tmp_path):
 
 def test_rename_and_move_endpoints(tmp_path):
     client, config = endpoint_client(tmp_path)
-    write_file(config.base_download_dir, "Movie", "old.txt")
-    os.makedirs(os.path.join(config.base_download_dir, "TV Show"))
+    write_file(config.base_download_dir, "Movies", "old.txt")
+    os.makedirs(os.path.join(config.base_download_dir, "Shows"))
 
     with client:
         renamed = client.post(
             "/files/rename", headers=AUTH,
-            json={"path": "Movie/old.txt", "new_name": "new.txt"},
+            json={"path": "Movies/old.txt", "new_name": "new.txt"},
         )
         moved = client.post(
             "/files/move", headers=AUTH,
-            json={"path": "Movie/new.txt", "target_dir": "TV Show"},
+            json={"path": "Movies/new.txt", "target_dir": "Shows"},
         )
 
     assert renamed.status_code == 200
     assert renamed.json() == {
-        "renamed": "Movie/old.txt", "to": "Movie/new.txt",
+        "renamed": "Movies/old.txt", "to": "Movies/new.txt",
     }
     assert moved.status_code == 200
     assert moved.json() == {
-        "moved": "Movie/new.txt", "to": "TV Show/new.txt",
+        "moved": "Movies/new.txt", "to": "Shows/new.txt",
     }
     assert os.path.exists(
-        os.path.join(config.base_download_dir, "TV Show", "new.txt")
+        os.path.join(config.base_download_dir, "Shows", "new.txt")
     )
 
 
 def test_rename_endpoint_refuses_taken_targets_and_bad_names(tmp_path):
     client, config = endpoint_client(tmp_path)
-    write_file(config.base_download_dir, "Movie", "a.txt")
-    write_file(config.base_download_dir, "Movie", "b.txt")
+    write_file(config.base_download_dir, "Movies", "a.txt")
+    write_file(config.base_download_dir, "Movies", "b.txt")
 
     with client:
         taken = client.post(
             "/files/rename", headers=AUTH,
-            json={"path": "Movie/a.txt", "new_name": "b.txt"},
+            json={"path": "Movies/a.txt", "new_name": "b.txt"},
         )
         bad = client.post(
             "/files/rename", headers=AUTH,
-            json={"path": "Movie/a.txt", "new_name": "../escape"},
+            json={"path": "Movies/a.txt", "new_name": "../escape"},
         )
 
     assert taken.status_code == 400
@@ -742,5 +742,5 @@ def test_file_endpoints_require_the_service_token(tmp_path):
     with client:
         assert client.get("/files").status_code == 401
         assert client.post(
-            "/files/delete", json={"path": "Movie"}
+            "/files/delete", json={"path": "Movies"}
         ).status_code == 401

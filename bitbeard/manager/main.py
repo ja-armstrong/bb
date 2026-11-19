@@ -47,9 +47,9 @@ from .search import search
 
 logger = logging.getLogger(__name__)
 
-#: The Categories a Download can live under (the GLOSSARY's four), the
-#: subdirectories of the Media Root a move can target.
-CATEGORIES = ("Movie", "TV Show", "Audiobook", "Other")
+#: The Categories a Download can live under, the subdirectories of the
+#: Media Root a move can target.
+CATEGORIES = ("Movies", "Shows", "Audiobooks", "eBooks", "Music", "Other")
 
 
 class TorrentRequest(BaseModel):

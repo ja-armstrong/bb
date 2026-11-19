@@ -52,8 +52,8 @@ def _record_download(config, account_id, size_bytes, status="completed"):
     with closing(db.connect(config.db_path)) as connection:
         cursor = connection.execute(
             "INSERT INTO downloads (account, name, category, save_path,"
-            " size_bytes, status, submitted_at) VALUES (?, 'Some Movie',"
-            " 'Movie', '/media/Movie/1', ?, ?, ?)",
+            " size_bytes, status, submitted_at) VALUES (?, 'Some Movies',"
+            " 'Movies', '/media/Movies/1', ?, ?, ?)",
             (account_id, size_bytes, status, db.utc_now()),
         )
         connection.commit()
@@ -94,7 +94,7 @@ class FakeTransport:
 def _submit(client, size_bytes=0, **json_extra):
     body = {
         "magnet_link": "magnet:?xt=urn:btih:abcdef",
-        "category": "Movie",
+        "category": "Movies",
         "size_bytes": size_bytes,
     }
     body.update(json_extra)

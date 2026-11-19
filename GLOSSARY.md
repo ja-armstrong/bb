@@ -136,7 +136,7 @@ boundary: no file operation may escape it.
 _Avoid_: media dir, downloads folder, /media
 
 **Category**:
-Movie, TV Show, Audiobook, or Other — the subdirectory of the Media Root a
+Movies, Shows, Audiobooks, or Other — the subdirectory of the Media Root a
 download lands in.
 
 **Active Torrent**:

@@ -51,16 +51,19 @@ def test_completed_downloads_have_delete_rename_and_move():
     assert "loadQuota();" in html
 
 
-def test_move_targets_the_four_categories():
+def test_move_targets_the_six_categories():
     html = read("index.html")
 
-    assert "Move to Category (Movie, TV Show, Audiobook, Other)" in html
+    assert (
+        "Move to Category (Movies, Shows, Audiobooks, eBooks, Music, Other)"
+        in html
+    )
 
 
-def test_the_submission_form_offers_the_four_categories():
+def test_the_submission_form_offers_the_six_categories():
     html = read("index.html")
 
-    for category in ("Movie", "TV Show", "Other", "Audiobook"):
+    for category in ("Movies", "Shows", "Other", "Audiobooks", "eBooks", "Music"):
         assert f'<option value="{category}">{category}</option>' in html
 
 

@@ -76,8 +76,8 @@ def _post(client, payload, headers=AUTH):
 
 COMPLETION = {
     "event": "completed",
-    "torrent_name": "Some Movie",
-    "category": "Movie",
+    "torrent_name": "Some Movies",
+    "category": "Movies",
     "actor": "deckhand",
 }
 
@@ -110,7 +110,7 @@ def test_webhook_announces_a_completion_to_the_discord_channel():
     assert response.status_code == 200
     assert response.json() == {"announced": True}
     assert channel.messages == [
-        "Some Movie has been added to Bitbeard under Movie."
+        "Some Movies has been added to Bitbeard under Movies."
     ]
 
 
@@ -208,7 +208,7 @@ def test_completion_notifier_without_a_channel_skips_silently():
     notifier = CompletionNotifier(StubBuiltDiscordClient(), None)
 
     assert notifier.available is False
-    asyncio.run(notifier.announce("Some Movie", "Movie"))  # no error, no send
+    asyncio.run(notifier.announce("Some Movies", "Movies"))  # no error, no send
 
 
 def test_webhook_only_announces_completion_events():

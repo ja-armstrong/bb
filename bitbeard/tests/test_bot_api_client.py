@@ -58,9 +58,9 @@ def test_search_carries_the_service_token_and_discord_identity(client, transport
 
 def test_submit_carries_the_torznab_size_and_title(client, transport):
     client.submit(
-        "magnet:?xt=urn:btih:x", "Movie",
+        "magnet:?xt=urn:btih:x", "Movies",
         discord_id="123456789", discord_name="Salty",
-        size_bytes=1610612736, title="Some Movie 2020",
+        size_bytes=1610612736, title="Some Movies 2020",
     )
 
     call = transport.calls[0]
@@ -68,9 +68,9 @@ def test_submit_carries_the_torznab_size_and_title(client, transport):
     assert call["url"] == "http://api.test/download"
     assert call["json"] == {
         "magnet_link": "magnet:?xt=urn:btih:x",
-        "category": "Movie",
+        "category": "Movies",
         "size_bytes": 1610612736,
-        "title": "Some Movie 2020",
+        "title": "Some Movies 2020",
     }
     assert call["headers"]["Authorization"] == "Bearer service-token"
     assert call["headers"][DISCORD_ID_HEADER] == "123456789"

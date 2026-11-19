@@ -62,8 +62,8 @@ def _record_download(config, account_id, size_bytes):
     with closing(db.connect(config.db_path)) as connection:
         connection.execute(
             "INSERT INTO downloads (account, name, category, save_path,"
-            " size_bytes, status, submitted_at) VALUES (?, 'Some Movie',"
-            " 'Movie', '/media/Movie/1', ?, 'completed', ?)",
+            " size_bytes, status, submitted_at) VALUES (?, 'Some Movies',"
+            " 'Movies', '/media/Movies/1', ?, 'completed', ?)",
             (account_id, size_bytes, db.utc_now()),
         )
         connection.commit()
@@ -314,7 +314,7 @@ def test_override_quotas_are_enforced_and_unlimited_is_not(tmp_path):
         response = client.post(
             "/download",
             json={"magnet_link": "magnet:?xt=urn:btih:abcdef",
-                  "category": "Movie", "size_bytes": 2048},
+                  "category": "Movies", "size_bytes": 2048},
         )
         assert response.status_code == 403
         assert transport.calls == []
@@ -323,7 +323,7 @@ def test_override_quotas_are_enforced_and_unlimited_is_not(tmp_path):
         response = client.post(
             "/download",
             json={"magnet_link": "magnet:?xt=urn:btih:abcdef",
-                  "category": "Movie", "size_bytes": 2048},
+                  "category": "Movies", "size_bytes": 2048},
         )
         assert response.status_code == 200
         assert len(transport.calls) == 1

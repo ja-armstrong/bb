@@ -144,7 +144,7 @@ def test_proxied_download_reaches_the_manager_with_the_actor(tmp_path):
             "/download",
             json={
                 "magnet_link": "magnet:?xt=urn:btih:abcdef",
-                "category": "Movie",
+                "category": "Movies",
             },
         )
 
@@ -154,7 +154,7 @@ def test_proxied_download_reaches_the_manager_with_the_actor(tmp_path):
     assert call["url"] == f"{MANAGER_URL}/download"
     assert call["json"] == {
         "magnet_link": "magnet:?xt=urn:btih:abcdef",
-        "category": "Movie",
+        "category": "Movies",
         "size_bytes": 0,
         "title": None,
     }
@@ -236,7 +236,7 @@ def test_proxied_calls_require_a_session(tmp_path):
     with TestClient(make_app(config, transport)) as client:
         assert client.get("/search", params={"q": "x"}).status_code == 401
         assert client.post(
-            "/download", json={"magnet_link": "m", "category": "Movie"}
+            "/download", json={"magnet_link": "m", "category": "Movies"}
         ).status_code == 401
         assert client.get("/progress").status_code == 401
         assert client.post("/cancel").status_code == 401
@@ -308,14 +308,14 @@ def test_internal_events_records_lifecycle_events_with_the_actor(tmp_path):
     with TestClient(create_app(config)) as client:
         assert _post_event(client, {
             "event": "submitted",
-            "torrent_name": "Some Movie",
-            "category": "Movie",
+            "torrent_name": "Some Movies",
+            "category": "Movies",
             "actor": "deckhand",
         }).status_code == 200
         assert _post_event(client, {
             "event": "completed",
-            "torrent_name": "Some Movie",
-            "category": "Movie",
+            "torrent_name": "Some Movies",
+            "category": "Movies",
             "actor": "deckhand",
         }).status_code == 200
         assert _post_event(client, {"event": "drained"}).status_code == 200

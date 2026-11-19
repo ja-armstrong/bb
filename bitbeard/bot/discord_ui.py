@@ -19,13 +19,17 @@ from discord.ui import Button, Select, View
 
 CATEGORY_OPTIONS = [
     # USER-FACING
-    discord.SelectOption(label="Movie", emoji="🎬"),
+    discord.SelectOption(label="Movies", emoji="🎬"),
     # USER-FACING
-    discord.SelectOption(label="TV Show", emoji="📺"),
+    discord.SelectOption(label="Shows", emoji="📺"),
     # USER-FACING
     discord.SelectOption(label="Other", emoji="📁"),
     # USER-FACING
-    discord.SelectOption(label="Audiobook", emoji="🎧"),
+    discord.SelectOption(label="Audiobooks", emoji="🎧"),
+    # USER-FACING
+    discord.SelectOption(label="eBooks", emoji="📗"),
+    # USER-FACING
+    discord.SelectOption(label="Music", emoji="🎵"),
 ]
 
 

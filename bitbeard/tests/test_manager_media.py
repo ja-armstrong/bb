@@ -69,8 +69,8 @@ def make_ledger(config, qbt=None):
     return QuotaLedger(config.db_path, config.base_download_dir, qbt_client=qbt)
 
 
-def completed_download(ledger, config, account_id=None, name="Some Movie",
-                       category="Movie", size_bytes=1024):
+def completed_download(ledger, config, account_id=None, name="Some Movies",
+                       category="Movies", size_bytes=1024):
     """A completed Download record with files actually on disk."""
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=name,
@@ -138,22 +138,22 @@ def test_list_downloads_scopes_to_the_owning_account(tmp_path):
     ledger = make_ledger(config)
     hers = make_account(config.db_path, "matey")
     his = make_account(config.db_path, "deckhand")
-    completed_download(ledger, config, account_id=hers, name="Her Movie")
-    completed_download(ledger, config, account_id=his, name="His Movie")
+    completed_download(ledger, config, account_id=hers, name="Her Movies")
+    completed_download(ledger, config, account_id=his, name="His Movies")
 
     hers_media = ledger.list_downloads(account_id=hers)
 
-    assert [entry["name"] for entry in hers_media] == ["Her Movie"]
+    assert [entry["name"] for entry in hers_media] == ["Her Movies"]
 
 
 def test_list_downloads_scopes_unlinked_discord_actors_by_name(tmp_path):
     config = make_config(tmp_path)
     ledger = make_ledger(config)
     record = ledger.open_download(
-        account_id=None, discord_name="discord:salty", title="Salty Movie",
+        account_id=None, discord_name="discord:salty", title="Salty Movies",
         category="Other", size_bytes=0,
     )
-    record.completed("Salty Movie", 512)
+    record.completed("Salty Movies", 512)
     bystander = make_account(config.db_path)
 
     media = ledger.list_downloads(discord_name="discord:salty")
@@ -170,7 +170,7 @@ def test_list_downloads_attaches_live_progress_to_in_flight_rows(tmp_path):
     account_id = make_account(config.db_path)
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=500,
+        category="Movies", size_bytes=500,
     )
     torrent = FakeTorrent("h1", "Test Torrent")
     torrent.save_path = record.save_path
@@ -205,7 +205,7 @@ def test_list_downloads_omits_cancelled_rows(tmp_path):
     account_id = make_account(config.db_path)
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=500,
+        category="Movies", size_bytes=500,
     )
     record.cancelled()
 
@@ -234,7 +234,7 @@ def test_rename_download_updates_the_record_and_the_disk(tmp_path):
 
     assert updated["name"] == "Pirates Yarn"
     new_path = os.path.join(
-        config.base_download_dir, "Movie", "Pirates Yarn"
+        config.base_download_dir, "Movies", "Pirates Yarn"
     )
     assert updated["save_path"] == new_path
     assert os.path.exists(new_path)
@@ -248,7 +248,7 @@ def test_rename_download_refuses_while_the_torrent_is_still_active(tmp_path):
     ledger = make_ledger(config)
     account_id = make_account(config.db_path)
     record = completed_download(ledger, config, account_id=account_id)
-    torrent = FakeTorrent("h1", "Some Movie")
+    torrent = FakeTorrent("h1", "Some Movies")
     torrent.save_path = record.save_path
     ledger._qbt = FakeQbt()
     ledger._qbt.torrents.append(torrent)
@@ -262,7 +262,7 @@ def test_rename_download_refuses_in_flight_records(tmp_path):
     ledger = make_ledger(config)
     record = ledger.open_download(
         account_id=None, discord_name=None, title=None,
-        category="Movie", size_bytes=0,
+        category="Movies", size_bytes=0,
     )
 
     with pytest.raises(NotCompletedError):
@@ -275,7 +275,7 @@ def test_rename_download_refuses_a_taken_target(tmp_path):
     account_id = make_account(config.db_path)
     record = completed_download(ledger, config, account_id=account_id)
     # Another Download's directory is already sitting at the target.
-    write_files(config.base_download_dir, "Movie", "Pirates Yarn")
+    write_files(config.base_download_dir, "Movies", "Pirates Yarn")
 
     with pytest.raises(PathTakenError):
         ledger.rename_download(record.id, "Pirates Yarn")
@@ -289,7 +289,7 @@ def test_rename_download_refuses_another_records_save_path(tmp_path):
     # Another Download record already claims the target save path.
     other = ledger.open_download(
         account_id=account_id, discord_name=None, title="Occupied",
-        category="Movie", size_bytes=0,
+        category="Movies", size_bytes=0,
     )
 
     with pytest.raises(PathTakenError):
@@ -325,11 +325,11 @@ def test_move_download_updates_record_disk_and_keeps_quota(tmp_path):
     record = completed_download(ledger, config, account_id=account_id)
     used_before = quota_used(config.db_path, account_id)
 
-    updated = ledger.move_download(record.id, "TV Show")
+    updated = ledger.move_download(record.id, "Shows")
 
-    assert updated["category"] == "TV Show"
+    assert updated["category"] == "Shows"
     new_path = os.path.join(
-        config.base_download_dir, "TV Show", str(record.id)
+        config.base_download_dir, "Shows", str(record.id)
     )
     assert updated["save_path"] == new_path
     assert os.path.exists(new_path)
@@ -343,13 +343,13 @@ def test_move_download_refuses_while_the_torrent_is_still_active(tmp_path):
     ledger = make_ledger(config)
     account_id = make_account(config.db_path)
     record = completed_download(ledger, config, account_id=account_id)
-    torrent = FakeTorrent("h1", "Some Movie")
+    torrent = FakeTorrent("h1", "Some Movies")
     torrent.save_path = record.save_path
     ledger._qbt = FakeQbt()
     ledger._qbt.torrents.append(torrent)
 
     with pytest.raises(ActiveTorrentError):
-        ledger.move_download(record.id, "TV Show")
+        ledger.move_download(record.id, "Shows")
 
 
 def test_move_download_refuses_paths_outside_the_media_root(tmp_path):
@@ -381,8 +381,8 @@ def test_media_list_endpoint_scopes_by_the_trusted_headers(tmp_path):
     ledger = app.state.quota_ledger
     hers = make_account(config.db_path, "matey")
     his = make_account(config.db_path, "deckhand")
-    completed_download(ledger, config, account_id=hers, name="Her Movie")
-    completed_download(ledger, config, account_id=his, name="His Movie")
+    completed_download(ledger, config, account_id=hers, name="Her Movies")
+    completed_download(ledger, config, account_id=his, name="His Movies")
 
     with TestClient(app) as client:
         response = client.get(
@@ -391,7 +391,7 @@ def test_media_list_endpoint_scopes_by_the_trusted_headers(tmp_path):
 
     assert response.status_code == 200
     names = [entry["name"] for entry in response.json()["downloads"]]
-    assert names == ["Her Movie"]
+    assert names == ["Her Movies"]
 
 
 def test_media_list_endpoint_refuses_unattributed_calls(tmp_path):
@@ -407,10 +407,10 @@ def test_media_list_endpoint_scopes_unlinked_discord_actors(tmp_path):
     app, config = make_app(tmp_path)
     ledger = app.state.quota_ledger
     record = ledger.open_download(
-        account_id=None, discord_name="discord:salty", title="Salty Movie",
+        account_id=None, discord_name="discord:salty", title="Salty Movies",
         category="Other", size_bytes=0,
     )
-    record.completed("Salty Movie", 512)
+    record.completed("Salty Movies", 512)
 
     with TestClient(app) as client:
         response = client.get(
@@ -462,7 +462,7 @@ def test_rename_endpoint_updates_record_and_disk(tmp_path):
     assert response.json() == {"renamed": record.id, "name": "Pirates Yarn"}
     row = get_row(config.db_path, record.id)
     assert row["name"] == "Pirates Yarn"
-    assert row["save_path"].endswith(os.path.join("Movie", "Pirates Yarn"))
+    assert row["save_path"].endswith(os.path.join("Movies", "Pirates Yarn"))
     assert os.path.exists(row["save_path"])
 
 
@@ -504,7 +504,7 @@ def test_rename_endpoint_refuses_an_active_torrent(tmp_path):
     ledger = app.state.quota_ledger
     account_id = make_account(config.db_path)
     record = completed_download(ledger, config, account_id=account_id)
-    torrent = FakeTorrent("h1", "Some Movie")
+    torrent = FakeTorrent("h1", "Some Movies")
     torrent.save_path = record.save_path
     app.state.qbt_client.torrents.append(torrent)
 
@@ -525,11 +525,11 @@ def test_cancel_endpoint_sweeps_only_that_download(tmp_path):
     account_id = make_account(config.db_path)
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=500,
+        category="Movies", size_bytes=500,
     )
     other = ledger.open_download(
         account_id=account_id, discord_name=None, title=None,
-        category="Movie", size_bytes=300,
+        category="Movies", size_bytes=300,
     )
     manager = FakeManagerForMedia(names={record.save_path: ["Test Torrent"]})
     app.state.download_manager = manager

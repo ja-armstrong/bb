@@ -48,13 +48,13 @@ def _insert_account(config, username, password="ropes123", role="user",
 
 
 def _record_download(config, account_id=None, discord_name=None, status="completed",
-                     name="Some Movie", size_bytes=1024):
+                     name="Some Movies", size_bytes=1024):
     """Put a Download record in the store as the manager would leave it."""
     with closing(db.connect(config.db_path)) as connection:
         cursor = connection.execute(
             "INSERT INTO downloads (account, discord_name, name, category,"
             " save_path, size_bytes, status, submitted_at)"
-            " VALUES (?, ?, ?, 'Movie', '/media/Movie/1', ?, ?, ?)",
+            " VALUES (?, ?, ?, 'Movies', '/media/Movies/1', ?, ?, ?)",
             (account_id, discord_name, name, size_bytes, status, db.utc_now()),
         )
         connection.commit()
@@ -103,7 +103,7 @@ def _audit(config, action):
 def test_media_lists_the_calling_actors_downloads(tmp_path):
     config = make_config(tmp_path)
     transport = FakeTransport([
-        ProxyResponse(200, {"downloads": [{"id": 7, "name": "Some Movie"}]})
+        ProxyResponse(200, {"downloads": [{"id": 7, "name": "Some Movies"}]})
     ])
 
     with TestClient(create_app(config, transport)) as client:
@@ -112,7 +112,7 @@ def test_media_lists_the_calling_actors_downloads(tmp_path):
         response = client.get("/media")
 
     assert response.status_code == 200
-    assert response.json() == {"downloads": [{"id": 7, "name": "Some Movie"}]}
+    assert response.json() == {"downloads": [{"id": 7, "name": "Some Movies"}]}
     # The listing is scoped to the calling Actor at the manager.
     assert transport.last["method"] == "GET"
     assert transport.last["url"] == f"{MANAGER_URL}/media"
@@ -244,7 +244,7 @@ def test_rename_is_proxied_with_the_new_name_and_audited(tmp_path):
 def test_move_is_proxied_with_the_category_and_audited(tmp_path):
     config = make_config(tmp_path)
     transport = FakeTransport([
-        ProxyResponse(200, {"moved": 5, "category": "TV Show"})
+        ProxyResponse(200, {"moved": 5, "category": "Shows"})
     ])
 
     with TestClient(create_app(config, transport)) as client:
@@ -252,19 +252,19 @@ def test_move_is_proxied_with_the_category_and_audited(tmp_path):
         download_id = _record_download(config, account_id=account_id)
         _login(client, "deckhand")
         response = client.post(
-            f"/media/{download_id}/move", json={"category": "TV Show"}
+            f"/media/{download_id}/move", json={"category": "Shows"}
         )
 
     assert response.status_code == 200
-    assert transport.last["json"] == {"category": "TV Show"}
+    assert transport.last["json"] == {"category": "Shows"}
     rows = _audit(config, "media_move")
     assert rows[0]["actor"] == "deckhand"
-    assert '"category": "TV Show"' in rows[0]["details"]
+    assert '"category": "Shows"' in rows[0]["details"]
 
 
 def test_cancel_is_proxied_per_download_and_audited(tmp_path):
     config = make_config(tmp_path)
-    transport = FakeTransport([ProxyResponse(200, {"cancelled": ["Some Movie"]})])
+    transport = FakeTransport([ProxyResponse(200, {"cancelled": ["Some Movies"]})])
 
     with TestClient(create_app(config, transport)) as client:
         account_id = _insert_account(config, "deckhand")
@@ -289,7 +289,7 @@ def test_an_active_torrent_refusal_passes_through_as_a_409(tmp_path):
     transport = FakeTransport([
         ProxyResponse(
             409,
-            {"detail": "/media/Movie/1 belongs to an Active Torrent."},
+            {"detail": "/media/Movies/1 belongs to an Active Torrent."},
         )
     ])
 

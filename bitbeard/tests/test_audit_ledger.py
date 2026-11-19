@@ -110,7 +110,7 @@ class FakeTransport:
 
 SEARCH_RESULTS = {
     "results": [
-        {"title": "Some Movie", "magnet_link": "magnet:?xt=urn:btih:x",
+        {"title": "Some Movies", "magnet_link": "magnet:?xt=urn:btih:x",
          "seeders": 10, "size_gb": 1.0}
     ]
 }
@@ -124,7 +124,7 @@ def test_each_action_type_writes_a_ledger_row(tmp_path):
     transport = FakeTransport([
         ProxyResponse(200, SEARCH_RESULTS),
         ProxyResponse(200, {}),
-        ProxyResponse(200, {"cancelled": ["Some Movie"]}),
+        ProxyResponse(200, {"cancelled": ["Some Movies"]}),
     ])
 
     with TestClient(create_app(config, proxy_transport=transport)) as client:
@@ -133,14 +133,14 @@ def test_each_action_type_writes_a_ledger_row(tmp_path):
         client.get("/search", params={"q": "linux iso"})
         client.post(
             "/download",
-            json={"magnet_link": "magnet:?xt=urn:btih:x", "category": "Movie"},
+            json={"magnet_link": "magnet:?xt=urn:btih:x", "category": "Movies"},
         )
         client.post("/cancel")
         for payload in (
-            {"event": "submitted", "torrent_name": "Some Movie",
-             "category": "Movie", "actor": "admin"},
-            {"event": "completed", "torrent_name": "Some Movie",
-             "category": "Movie", "actor": "admin"},
+            {"event": "submitted", "torrent_name": "Some Movies",
+             "category": "Movies", "actor": "admin"},
+            {"event": "completed", "torrent_name": "Some Movies",
+             "category": "Movies", "actor": "admin"},
             {"event": "drained"},
         ):
             response = client.post(
@@ -171,9 +171,9 @@ def test_each_action_type_writes_a_ledger_row(tmp_path):
     assert by_action["login"]["actor"] == "admin"
     assert by_action["search"]["actor"] == "admin"
     assert json.loads(by_action["search"]["details"]) == {"query": "linux iso"}
-    assert json.loads(by_action["download_submit"]["details"])["category"] == "Movie"
+    assert json.loads(by_action["download_submit"]["details"])["category"] == "Movies"
     assert json.loads(by_action["download_cancel"]["details"]) == {
-        "cancelled": ["Some Movie"]
+        "cancelled": ["Some Movies"]
     }
     assert by_action["lifecycle_drained"]["actor"] == MANAGER_ACTOR
 
@@ -360,7 +360,7 @@ def test_bot_call_for_an_unlinked_user_is_discord_name(tmp_path):
         ).status_code == 200
         assert client.post(
             "/download",
-            json={"magnet_link": "magnet:?xt=urn:btih:x", "category": "Movie"},
+            json={"magnet_link": "magnet:?xt=urn:btih:x", "category": "Movies"},
             headers={
                 "Authorization": "Bearer service-token",
                 "X-Bitbeard-Discord": "987654321",

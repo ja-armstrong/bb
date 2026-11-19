@@ -82,7 +82,7 @@ def test_file_endpoints_require_a_session(tmp_path):
     with make_client(config, transport) as client:
         assert client.get("/admin/files").status_code == 401
         assert client.post(
-            "/admin/files/delete", json={"path": "Movie"}
+            "/admin/files/delete", json={"path": "Movies"}
         ).status_code == 401
 
     assert transport.calls == []
@@ -100,14 +100,14 @@ def test_file_endpoints_refuse_the_user_role(tmp_path):
 
         assert client.get("/admin/files").status_code == 403
         assert client.post(
-            "/admin/files/delete", json={"path": "Movie"}
+            "/admin/files/delete", json={"path": "Movies"}
         ).status_code == 403
         assert client.post(
-            "/admin/files/rename", json={"path": "Movie", "new_name": "X"}
+            "/admin/files/rename", json={"path": "Movies", "new_name": "X"}
         ).status_code == 403
         assert client.post(
             "/admin/files/move",
-            json={"path": "Movie", "target_dir": "TV Show"},
+            json={"path": "Movies", "target_dir": "Shows"},
         ).status_code == 403
 
     assert transport.calls == []
@@ -119,23 +119,23 @@ def test_file_endpoints_refuse_the_user_role(tmp_path):
 def test_browse_forwards_the_path_to_the_manager(tmp_path):
     config = make_config(tmp_path)
     transport = FakeTransport(
-        payload={"path": "Movie", "entries": [{"name": "file.bin"}]}
+        payload={"path": "Movies", "entries": [{"name": "file.bin"}]}
     )
 
     with make_client(config, transport) as client:
         _login(client)
-        response = client.get("/admin/files?path=Movie")
+        response = client.get("/admin/files?path=Movies")
 
     assert response.status_code == 200
     assert response.json() == {
-        "path": "Movie",
+        "path": "Movies",
         "entries": [{"name": "file.bin"}],
     }
     assert len(transport.calls) == 1
     call = transport.calls[0]
     assert call["method"] == "GET"
     assert call["url"] == "http://manager.test/files"
-    assert call["params"] == {"path": "Movie"}
+    assert call["params"] == {"path": "Movies"}
     assert call["headers"]["Authorization"] == "Bearer service-token"
 
 
@@ -184,68 +184,68 @@ def test_a_broken_manager_hop_is_one_502(tmp_path):
 
 def test_delete_is_audited_then_forwarded(tmp_path):
     config = make_config(tmp_path)
-    transport = FakeTransport(payload={"deleted": "Movie/old"})
+    transport = FakeTransport(payload={"deleted": "Movies/old"})
 
     with make_client(config, transport) as client:
         _login(client)
         response = client.post(
-            "/admin/files/delete", json={"path": "Movie/old"}
+            "/admin/files/delete", json={"path": "Movies/old"}
         )
 
     assert response.status_code == 200
-    assert response.json() == {"deleted": "Movie/old"}
+    assert response.json() == {"deleted": "Movies/old"}
     call = transport.calls[0]
     assert call["method"] == "POST"
     assert call["url"] == "http://manager.test/files/delete"
-    assert call["json"] == {"path": "Movie/old"}
+    assert call["json"] == {"path": "Movies/old"}
 
     rows = _audit_rows(config, "file_delete")
     assert len(rows) == 1
     assert rows[0]["actor"] == "admin"
     assert '"op": "delete"' in rows[0]["details"]
-    assert '"source": "Movie/old"' in rows[0]["details"]
+    assert '"source": "Movies/old"' in rows[0]["details"]
 
 
 def test_rename_is_audited_with_source_and_target_paths(tmp_path):
     config = make_config(tmp_path)
-    transport = FakeTransport(payload={"renamed": "Movie/old", "to": "Movie/new"})
+    transport = FakeTransport(payload={"renamed": "Movies/old", "to": "Movies/new"})
 
     with make_client(config, transport) as client:
         _login(client)
         response = client.post(
             "/admin/files/rename",
-            json={"path": "Movie/old", "new_name": "new"},
+            json={"path": "Movies/old", "new_name": "new"},
         )
 
     assert response.status_code == 200
     call = transport.calls[0]
-    assert call["json"] == {"path": "Movie/old", "new_name": "new"}
+    assert call["json"] == {"path": "Movies/old", "new_name": "new"}
 
     rows = _audit_rows(config, "file_rename")
     assert len(rows) == 1
     assert '"op": "rename"' in rows[0]["details"]
-    assert '"source": "Movie/old"' in rows[0]["details"]
-    assert '"target": "Movie/new"' in rows[0]["details"]
+    assert '"source": "Movies/old"' in rows[0]["details"]
+    assert '"target": "Movies/new"' in rows[0]["details"]
 
 
 def test_move_is_audited_with_source_and_target_paths(tmp_path):
     config = make_config(tmp_path)
-    transport = FakeTransport(payload={"moved": "Movie/x", "to": "TV Show/x"})
+    transport = FakeTransport(payload={"moved": "Movies/x", "to": "Shows/x"})
 
     with make_client(config, transport) as client:
         _login(client)
         response = client.post(
             "/admin/files/move",
-            json={"path": "Movie/x", "target_dir": "TV Show"},
+            json={"path": "Movies/x", "target_dir": "Shows"},
         )
 
     assert response.status_code == 200
     call = transport.calls[0]
-    assert call["json"] == {"path": "Movie/x", "target_dir": "TV Show"}
+    assert call["json"] == {"path": "Movies/x", "target_dir": "Shows"}
 
     rows = _audit_rows(config, "file_move")
     assert '"op": "move"' in rows[0]["details"]
-    assert '"target": "TV Show/x"' in rows[0]["details"]
+    assert '"target": "Shows/x"' in rows[0]["details"]
 
 
 def test_a_refusal_is_passthrough_but_still_audited_first(tmp_path):
@@ -255,32 +255,32 @@ def test_a_refusal_is_passthrough_but_still_audited_first(tmp_path):
     config = make_config(tmp_path)
     transport = FakeTransport(
         409,
-        {"detail": "'Movie/5' is inside an Active Torrent's save path."},
+        {"detail": "'Movies/5' is inside an Active Torrent's save path."},
     )
 
     with make_client(config, transport) as client:
         _login(client)
         response = client.post(
-            "/admin/files/delete", json={"path": "Movie/5"}
+            "/admin/files/delete", json={"path": "Movies/5"}
         )
 
     assert response.status_code == 409
     assert "Active Torrent" in response.json()["detail"]
     rows = _audit_rows(config, "file_delete")
     assert len(rows) == 1
-    assert '"source": "Movie/5"' in rows[0]["details"]
+    assert '"source": "Movies/5"' in rows[0]["details"]
 
 
 def test_an_unknown_path_is_refused_with_the_managers_404(tmp_path):
     config = make_config(tmp_path)
     transport = FakeTransport(
-        404, {"detail": "No file or directory at 'Movie/Missing'."}
+        404, {"detail": "No file or directory at 'Movies/Missing'."}
     )
 
     with make_client(config, transport) as client:
         _login(client)
         response = client.post(
-            "/admin/files/delete", json={"path": "Movie/Missing"}
+            "/admin/files/delete", json={"path": "Movies/Missing"}
         )
 
     assert response.status_code == 404
@@ -297,7 +297,7 @@ def test_the_forwarding_hop_failure_is_a_502(tmp_path):
     with make_client(config, BrokenTransport()) as client:
         _login(client)
         response = client.post(
-            "/admin/files/delete", json={"path": "Movie"}
+            "/admin/files/delete", json={"path": "Movies"}
         )
 
     assert response.status_code == 502

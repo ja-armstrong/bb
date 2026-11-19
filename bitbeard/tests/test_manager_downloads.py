@@ -120,7 +120,7 @@ def test_submit_uses_category_subdirectory_and_completes_quickly():
     manager, qbt, announcer = make_manager()
 
     async def run():
-        task = manager.submit("magnet:?xt=urn:btih:abc", "Movie")
+        task = manager.submit("magnet:?xt=urn:btih:abc", "Movies")
         await task
 
     asyncio.run(run())
@@ -128,11 +128,11 @@ def test_submit_uses_category_subdirectory_and_completes_quickly():
     assert qbt.add_calls == [
         {
             "urls": "magnet:?xt=urn:btih:abc",
-            "save_path": os.path.join("/media/downloads", "Movie"),
+            "save_path": os.path.join("/media/downloads", "Movies"),
         }
     ]
-    assert announcer.submitted == [("Test Torrent", "Movie", None, None)]
-    assert announcer.completed == [("Test Torrent", "Movie", None, None)]
+    assert announcer.submitted == [("Test Torrent", "Movies", None, None)]
+    assert announcer.completed == [("Test Torrent", "Movies", None, None)]
     assert announcer.all_done_count == 1
     assert qbt.torrents == []  # completed torrent was deleted
 
@@ -141,7 +141,7 @@ def test_submit_places_audiobook_downloads_in_its_subdirectory():
     manager, qbt, announcer = make_manager()
 
     async def run():
-        task = manager.submit("magnet:?xt=urn:btih:abc", "Audiobook")
+        task = manager.submit("magnet:?xt=urn:btih:abc", "Audiobooks")
         await task
 
     asyncio.run(run())
@@ -149,23 +149,23 @@ def test_submit_places_audiobook_downloads_in_its_subdirectory():
     assert qbt.add_calls == [
         {
             "urls": "magnet:?xt=urn:btih:abc",
-            "save_path": os.path.join("/media/downloads", "Audiobook"),
+            "save_path": os.path.join("/media/downloads", "Audiobooks"),
         }
     ]
-    assert announcer.submitted == [("Test Torrent", "Audiobook", None, None)]
-    assert announcer.completed == [("Test Torrent", "Audiobook", None, None)]
+    assert announcer.submitted == [("Test Torrent", "Audiobooks", None, None)]
+    assert announcer.completed == [("Test Torrent", "Audiobooks", None, None)]
 
 
 def test_actor_rides_along_on_the_submitted_and_completed_events():
     manager, _, announcer = make_manager()
 
     async def run():
-        await manager.submit("magnet:?xt=urn:btih:abc", "Movie", actor="deckhand")
+        await manager.submit("magnet:?xt=urn:btih:abc", "Movies", actor="deckhand")
 
     asyncio.run(run())
 
-    assert announcer.submitted == [("Test Torrent", "Movie", "deckhand", None)]
-    assert announcer.completed == [("Test Torrent", "Movie", "deckhand", None)]
+    assert announcer.submitted == [("Test Torrent", "Movies", "deckhand", None)]
+    assert announcer.completed == [("Test Torrent", "Movies", "deckhand", None)]
 
 
 def test_completion_sweep_deletes_only_hashes_this_manager_submitted():
@@ -179,7 +179,7 @@ def test_completion_sweep_deletes_only_hashes_this_manager_submitted():
     manager, _, announcer = make_manager(qbt=qbt)
 
     async def run():
-        task = manager.submit("magnet:?xt=urn:btih:abc", "TV Show")
+        task = manager.submit("magnet:?xt=urn:btih:abc", "Shows")
         await task
 
     asyncio.run(run())
@@ -187,7 +187,7 @@ def test_completion_sweep_deletes_only_hashes_this_manager_submitted():
     hashes = {t.hash for t in qbt.torrents}
     assert "foreign-completed" in hashes
     assert "foreign-downloading" in hashes
-    assert ("Test Torrent", "TV Show", None, None) in announcer.completed
+    assert ("Test Torrent", "Shows", None, None) in announcer.completed
     assert all(
         name != "Someone Else's Done Torrent" for name, *_ in announcer.completed
     )
@@ -218,8 +218,8 @@ def test_all_done_announced_once_only_after_all_concurrent_submits_finish():
     manager, qbt, announcer = make_manager(poll_interval=0.01)
 
     async def run():
-        t1 = manager.submit("magnet:?xt=urn:btih:one", "Movie")
-        t2 = manager.submit("magnet:?xt=urn:btih:two", "TV Show")
+        t1 = manager.submit("magnet:?xt=urn:btih:one", "Movies")
+        t2 = manager.submit("magnet:?xt=urn:btih:two", "Shows")
         await asyncio.gather(t1, t2)
 
     asyncio.run(run())
@@ -234,8 +234,8 @@ def test_completed_events_keep_each_torrents_own_actor():
     manager, _, announcer = make_manager(qbt=qbt, poll_interval=0.01)
 
     async def run():
-        t1 = manager.submit("magnet:?xt=urn:btih:one", "Movie", actor="first")
-        t2 = manager.submit("magnet:?xt=urn:btih:two", "TV Show", actor="second")
+        t1 = manager.submit("magnet:?xt=urn:btih:one", "Movies", actor="first")
+        t2 = manager.submit("magnet:?xt=urn:btih:two", "Shows", actor="second")
         await asyncio.gather(t1, t2)
 
     asyncio.run(run())
@@ -249,7 +249,7 @@ def test_all_done_rearms_for_a_later_submit():
     manager, qbt, announcer = make_manager(poll_interval=0.01)
 
     async def run():
-        await manager.submit("magnet:?xt=urn:btih:a", "Movie")
+        await manager.submit("magnet:?xt=urn:btih:a", "Movies")
         await manager.submit("magnet:?xt=urn:btih:b", "Other")
 
     asyncio.run(run())
@@ -263,7 +263,7 @@ def test_failed_add_does_not_monitor_or_announce():
     qbt.add_error = RuntimeError("qbt down")
 
     async def run():
-        task = manager.submit("magnet:?xt=urn:btih:abc", "Movie")
+        task = manager.submit("magnet:?xt=urn:btih:abc", "Movies")
         await task
 
     asyncio.run(run())

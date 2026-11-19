@@ -112,10 +112,12 @@ def test_view_has_exactly_the_four_expected_options():
 
     options = selects[0].options
     assert [(o.label, str(o.emoji)) for o in options] == [
-        ("Movie", "🎬"),
-        ("TV Show", "📺"),
+        ("Movies", "🎬"),
+        ("Shows", "📺"),
         ("Other", "📁"),
-        ("Audiobook", "🎧"),
+        ("Audiobooks", "🎧"),
+        ("eBooks", "📗"),
+        ("Music", "🎵"),
     ]
 
 
@@ -128,11 +130,11 @@ def test_choosing_a_category_submits_magnet_and_chosen_category():
     async def run():
         view, select, submit = make_view()
         interaction = FakeInteraction()
-        choose(select, "TV Show")
+        choose(select, "Shows")
 
         await view.choose_category(interaction)
 
-        assert submit.calls == [("magnet:?xt=urn:btih:abc", "TV Show")]
+        assert submit.calls == [("magnet:?xt=urn:btih:abc", "Shows")]
         assert interaction.response.deferred
 
     asyncio.run(run())
@@ -142,7 +144,7 @@ def test_view_message_deleted_after_submit():
     async def run():
         view, select, _ = make_view()
         interaction = FakeInteraction()
-        choose(select, "Movie")
+        choose(select, "Movies")
 
         await view.choose_category(interaction)
 
@@ -174,7 +176,7 @@ def test_submit_failure_reports_via_response_when_not_yet_acknowledged():
         view, select, _ = make_view(error=RuntimeError("defer blew up"))
         interaction = FakeInteraction()
         interaction.response.defer = None  # defer itself fails
-        choose(select, "Movie")
+        choose(select, "Movies")
 
         await view.choose_category(interaction)
 
@@ -188,12 +190,12 @@ def test_confirmation_sent_to_channel_on_success():
     async def run():
         view, select, _ = make_view()
         interaction = FakeInteraction()
-        choose(select, "Movie")
+        choose(select, "Movies")
 
         await view.choose_category(interaction)
 
         assert interaction.channel.sent == [
-            "Magnet link added to qBittorrent under Movie."
+            "Magnet link added to qBittorrent under Movies."
         ]
 
     asyncio.run(run())
@@ -203,7 +205,7 @@ def test_no_confirmation_when_submit_fails():
     async def run():
         view, select, _ = make_view(error=RuntimeError("boom"))
         interaction = FakeInteraction()
-        choose(select, "Movie")
+        choose(select, "Movies")
 
         await view.choose_category(interaction)
 
@@ -300,7 +302,7 @@ def test_choosing_a_result_opens_the_category_picker_for_it():
             item for item in prompt.children if isinstance(item, Select)
         ][0]
         prompt_interaction = FakeInteraction()
-        choose(prompt_select, "TV Show")
+        choose(prompt_select, "Shows")
 
         await prompt.choose_category(prompt_interaction)
 
@@ -323,13 +325,13 @@ def test_the_bound_submit_carries_the_chosen_results_size_and_title():
             item for item in prompt.children if isinstance(item, Select)
         ][0]
         prompt_interaction = FakeInteraction()
-        choose(prompt_select, "Movie")
+        choose(prompt_select, "Movies")
 
         await prompt.choose_category(prompt_interaction)
 
         size_bytes = int(1.5 * 1024 ** 3)
         assert submit.calls == [
-            ("magnet:?xt=urn:btih:3", "Movie", size_bytes, "Result 3")
+            ("magnet:?xt=urn:btih:3", "Movies", size_bytes, "Result 3")
         ]
 
     asyncio.run(run())
@@ -353,7 +355,7 @@ def make_cancel_view(downloads=None, cancel=None):
     downloads = downloads or [
         {
             "id": 7,
-            "name": "Some Movie",
+            "name": "Some Movies",
             "status": "in_flight",
             "progress": "42.00%",
         },
@@ -369,7 +371,7 @@ def test_cancel_view_lists_the_given_in_flight_downloads():
     view, select, _ = make_cancel_view()
 
     assert [(o.label, o.value, o.description) for o in select.options] == [
-        ("#7 Some Movie", "7", "42.00%"),
+        ("#7 Some Movies", "7", "42.00%"),
         ("#8 Other", "8", "…"),
     ]
 
