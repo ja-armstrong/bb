@@ -212,9 +212,7 @@ def test_a_user_role_account_sets_their_own_jellyfin_password(
     # The call carried the caller's own username, not another's.
     assert stub.calls == [("newcomer", "my-own-pw-1")]
     # USER-FACING
-    assert response.json()["message"] == (
-        "Password set — log into Jellyfin with it."
-    )
+    assert response.json()["message"] == "Password set."
 
 
 def test_success_is_audited_without_the_password(tmp_path, monkeypatch):

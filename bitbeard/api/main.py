@@ -1192,7 +1192,7 @@ def create_app(
         )
         return {
             # USER-FACING
-            "message": "Password set — log into Jellyfin with it.",
+            "message": "Password set.",
         }
 
     @app.get("/me/quota")

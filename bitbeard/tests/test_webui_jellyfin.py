@@ -55,17 +55,12 @@ def test_the_message_area_is_a_live_region():
 # --- The honest prose ------------------------------------------------------------
 
 
-def test_the_prose_says_the_provisioning_password_is_never_shown():
+def test_the_prose_names_the_jellyfin_username():
     html = read("index.html")
 
-    assert "never shown" in html
-    assert "replaces" in html
-
-
-def test_the_prose_says_the_page_is_open_for_later_resets():
-    html = read("index.html")
-
-    assert "come back" in html
+    # The trimmed prose pins the one fact a first-time setter needs:
+    # which username the Jellyfin login wants.
+    assert "Your Jellyfin username is the same as your Bitbeard username." in html
 
 
 # --- The submission ----------------------------------------------------------------
