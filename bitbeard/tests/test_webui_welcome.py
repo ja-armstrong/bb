@@ -97,6 +97,17 @@ def test_the_to_jellyfin_button_opens_the_served_url():
     assert "me.jellyfin_url" in html
 
 
+def test_the_userbar_carries_an_always_available_jellyfin_button():
+    html = read("index.html")
+
+    # In the menu bar, next to ? and Log out — not only in the modal.
+    assert 'id="userbar-jellyfin"' in html
+    assert ">TO JELLYFIN</a>" in html
+    # Same capability gating and same served URL as the modal's button.
+    assert "userbar.hidden = !this.jellyfinAvailable;" in html
+    assert "userbar.href = this.url;" in html
+
+
 def test_the_password_shortcut_lands_on_the_account_tab():
     html = read("index.html")
 

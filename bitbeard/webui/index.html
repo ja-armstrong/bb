@@ -41,6 +41,9 @@
                 <span id="userbar-info"></span>
                 <span class="userbar-actions">
                     <!-- USER-FACING -->
+                    <a id="userbar-jellyfin" class="jellyfin-cta" href="#"
+                       hidden target="_blank" rel="noopener">TO JELLYFIN</a>
+                    <!-- USER-FACING -->
                     <button id="help-btn" title="???" aria-label="???">?</button>
                     <!-- USER-FACING -->
                     <button id="logout-btn">Log out</button>
@@ -346,8 +349,10 @@
                 this.overlay.hidden = true;
             },
             applyCapability() {
-                // Jellyfin off: the section, the TO JELLYFIN button and
+                // Jellyfin off: the section, the TO JELLYFIN buttons and
                 // the password shortcut all hide, per the modal's copy.
+                // The userbar button rides the same flag: it is always
+                // available at the top once Jellyfin is on.
                 document.getElementById('welcome-jellyfin').hidden =
                     !this.jellyfinAvailable;
                 document.getElementById('welcome-jellyfin-now').hidden =
@@ -355,6 +360,9 @@
                 const cta = document.getElementById('to-jellyfin');
                 cta.hidden = !this.jellyfinAvailable;
                 if (this.jellyfinAvailable) cta.href = this.url;
+                const userbar = document.getElementById('userbar-jellyfin');
+                userbar.hidden = !this.jellyfinAvailable;
+                if (this.jellyfinAvailable) userbar.href = this.url;
             },
             // Both exits count as "seen": the flag is set once, and the
             // auto-show never fires again (network trouble must not trap

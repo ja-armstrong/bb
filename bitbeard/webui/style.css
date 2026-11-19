@@ -95,6 +95,10 @@ main { max-width: 64rem; margin-inline: auto; padding: 0 1rem 4rem; }
 /* The ? button: a compact secondary control, square-ish by content. */
 #help-btn { min-width: 2.75rem; padding: .5rem .6rem; }
 
+/* In the userbar the CTA sits beside the compact controls; match their
+   padding so the row lines up. */
+.userbar-actions .jellyfin-cta { padding: .5rem 1.1rem; }
+
 /* --- Sections --------------------------------------------------------- */
 
 /* Hairline rules between sections, nothing else: no card grid. */
