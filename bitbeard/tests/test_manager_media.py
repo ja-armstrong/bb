@@ -71,13 +71,18 @@ def make_ledger(config, qbt=None):
 
 def completed_download(ledger, config, account_id=None, name="Some Movies",
                        category="Movies", size_bytes=1024):
-    """A completed Download record with files actually on disk."""
+    """A completed Download record with files actually on disk.
+
+    The download materializes into its slot, then completes — which
+    shelves it into the Category under the torrent's name; the record's
+    handle follows the move.
+    """
     record = ledger.open_download(
         account_id=account_id, discord_name=None, title=name,
         category=category, size_bytes=size_bytes,
     )
+    write_files(record.save_path)
     record.completed(name, size_bytes)
-    write_files(config.base_download_dir, category, str(record.id))
     return record
 
 
@@ -229,6 +234,7 @@ def test_rename_download_updates_the_record_and_the_disk(tmp_path):
     account_id = make_account(config.db_path)
     record = completed_download(ledger, config, account_id=account_id)
     used_before = quota_used(config.db_path, account_id)
+    old_path = record.save_path
 
     updated = ledger.rename_download(record.id, "Pirates Yarn")
 
@@ -238,7 +244,7 @@ def test_rename_download_updates_the_record_and_the_disk(tmp_path):
     )
     assert updated["save_path"] == new_path
     assert os.path.exists(new_path)
-    assert not os.path.exists(record.save_path)
+    assert not os.path.exists(old_path)
     # Renaming does not change what the Download costs.
     assert quota_used(config.db_path, account_id) == used_before
 
@@ -286,14 +292,11 @@ def test_rename_download_refuses_another_records_save_path(tmp_path):
     ledger = make_ledger(config)
     account_id = make_account(config.db_path)
     record = completed_download(ledger, config, account_id=account_id)
-    # Another Download record already claims the target save path.
-    other = ledger.open_download(
-        account_id=account_id, discord_name=None, title="Occupied",
-        category="Movies", size_bytes=0,
-    )
+    # Another completed Download is already shelved at the target name.
+    completed_download(ledger, config, account_id=account_id, name="Occupied")
 
     with pytest.raises(PathTakenError):
-        ledger.rename_download(record.id, str(other.id))
+        ledger.rename_download(record.id, "Occupied")
 
 
 def test_rename_download_refuses_paths_outside_the_media_root(tmp_path):
@@ -325,15 +328,17 @@ def test_move_download_updates_record_disk_and_keeps_quota(tmp_path):
     record = completed_download(ledger, config, account_id=account_id)
     used_before = quota_used(config.db_path, account_id)
 
+    old_path = record.save_path
     updated = ledger.move_download(record.id, "Shows")
 
     assert updated["category"] == "Shows"
+    # The leaf survives the move; the shelf changes.
     new_path = os.path.join(
-        config.base_download_dir, "Shows", str(record.id)
+        config.base_download_dir, "Shows", "Some Movies"
     )
     assert updated["save_path"] == new_path
     assert os.path.exists(new_path)
-    assert not os.path.exists(record.save_path)
+    assert not os.path.exists(old_path)
     # Moving is free: the same bytes, a new shelf.
     assert quota_used(config.db_path, account_id) == used_before
 

@@ -14,6 +14,13 @@ DEFAULT_BOT_URL = "http://127.0.0.1:9872"
 DEFAULT_DB_PATH = "/data/bitbeard.db"
 DEFAULT_RECONCILE_INTERVAL_SECONDS = 3600.0
 
+#: How often the Stall Watchdog sweeps qBittorrent (``0`` disables the
+#: job), and after how many consecutive stalled sweeps a torrent's
+#: recovery escalates from a forced reannounce to rotating the listening
+#: port (the wedged-UDP-socket cure).
+DEFAULT_STALL_WATCH_INTERVAL_SECONDS = 300.0
+DEFAULT_STALL_PORT_ROTATE_POLLS = 3
+
 
 @dataclass(frozen=True)
 class Config:
@@ -26,6 +33,8 @@ class Config:
     bot_url: str = DEFAULT_BOT_URL
     db_path: str = DEFAULT_DB_PATH
     reconcile_interval: float = DEFAULT_RECONCILE_INTERVAL_SECONDS
+    stall_watch_interval: float = DEFAULT_STALL_WATCH_INTERVAL_SECONDS
+    stall_port_rotate_polls: int = DEFAULT_STALL_PORT_ROTATE_POLLS
 
 
 def load_config() -> Config:
@@ -42,5 +51,15 @@ def load_config() -> Config:
             "QUOTA_RECONCILE_INTERVAL",
             cast=float,
             default=DEFAULT_RECONCILE_INTERVAL_SECONDS,
+        ),
+        stall_watch_interval=env(
+            "STALL_WATCH_INTERVAL",
+            cast=float,
+            default=DEFAULT_STALL_WATCH_INTERVAL_SECONDS,
+        ),
+        stall_port_rotate_polls=env(
+            "STALL_PORT_ROTATE_POLLS",
+            cast=int,
+            default=DEFAULT_STALL_PORT_ROTATE_POLLS,
         ),
     )

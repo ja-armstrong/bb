@@ -32,8 +32,39 @@ from .downloads import format_eta
 logger = logging.getLogger(__name__)
 
 #: Recorded size corrections (or counter corrections) beyond this many
-#: bytes are logged as drift; smaller ones are corrected silently.
+#: bytes are logged as drift warnings.
 DRIFT_WARN_BYTES = 100 * 1024 ** 2
+
+#: A directory leaf's cap, comfortably inside every filesystem's 255-byte
+#: name limit; longer torrent names are truncated, not rejected.
+MAX_DIR_NAME_LEN = 150
+
+#: In-flight Downloads live under this Media Root directory, not in the
+#: Category directories themselves. The media server scans the Categories,
+#: so half-written files and numeric slots never surface in a library.
+#: On completion the slot moves into its Category under the torrent's
+#: name (``_auto_rename_slot``) — same filesystem, so the move is a
+#: rename, and the Category libraries only ever see finished, well-named
+#: downloads.
+INCOMING_DIR_NAME = "Downloads"
+
+
+def safe_dir_name(name: str) -> str | None:
+    """A directory-leaf-safe version of a torrent's name, or ``None``.
+
+    Dots become spaces (release names use them as word separators, and
+    Jellyfin parses ``Letters.to.Juliet.2010`` far worse than ``Letters
+    to Juliet 2010``), path separators and control characters are
+    dropped, the rest is collapsed whitespace. ``None`` means "no safe
+    name" — the caller keeps the numeric slot instead.
+    """
+    cleaned = (name or "").replace(".", " ")
+    cleaned = "".join(
+        ch for ch in cleaned if ch not in "/\\\x00" and ord(ch) >= 32
+    )
+    cleaned = " ".join(cleaned.split()).strip(" .-")[:MAX_DIR_NAME_LEN]
+    cleaned = cleaned.rstrip(" .-")
+    return cleaned or None
 
 
 class ActiveTorrentError(Exception):
@@ -107,6 +138,9 @@ class QuotaLedger:
         self._db_path = db_path
         self._base_download_dir = base_download_dir
         self._qbt = qbt_client
+        # Live DownloadRecord handles by id: relocations repoint their
+        # ``save_path`` so the handle stays truthful after a shelving.
+        self._live_records: dict[int, DownloadRecord] = {}
 
     # --- Lifecycle transitions -------------------------------------------
 
@@ -137,7 +171,7 @@ class QuotaLedger:
             size_bytes=size_bytes,
         )
         save_path = os.path.join(
-            self._base_download_dir, category, str(download_id)
+            self._base_download_dir, INCOMING_DIR_NAME, category, str(download_id)
         )
         db.set_download_save_path(self._db_path, download_id, save_path)
         if account_id is not None and size_bytes:
@@ -146,7 +180,9 @@ class QuotaLedger:
             "Download %s submitted under %s (%s bytes) for account=%s.",
             download_id, category, size_bytes, account_id,
         )
-        return DownloadRecord(self, download_id, save_path)
+        record = DownloadRecord(self, download_id, save_path)
+        self._live_records[download_id] = record
+        return record
 
     def discovered(self, download_id: int, name: str) -> None:
         """Record the torrent's real name once qBittorrent knows it."""
@@ -157,6 +193,8 @@ class QuotaLedger:
 
         The row stays after the torrent is deleted from qBittorrent: the
         files remain on disk and stay owned — they are the owner's quota.
+        The numeric slot is then renamed to the torrent's name, so the
+        Media Root reads as a library without a manual rename.
         """
         row = self._row(download_id)
         if row is None or row["status"] != "in_flight":
@@ -169,6 +207,7 @@ class QuotaLedger:
                 self._db_path, row["account"], size_bytes - row["size_bytes"]
             )
         logger.info("Download %s completed with %s bytes.", download_id, size_bytes)
+        self._auto_rename_slot(download_id, name)
 
     def cancel(self, download_id: int) -> None:
         """A cancelled torrent stops counting: zero its recorded size."""
@@ -257,14 +296,70 @@ class QuotaLedger:
             entries.append(entry)
         return entries
 
+    def _auto_rename_slot(self, download_id: int, torrent_name: str) -> str | None:
+        """Shelve a completed Download into its Category, under its name.
+
+        The numeric slot under the incoming area (``Downloads/<Category>/
+        <id>``) exists for the download's lifetime — it is the record's
+        id, collision-free while in flight, and hidden from the media
+        server's Category scans. Once completed, the directory moves into
+        its Category under the torrent's name: the move is a rename (one
+        filesystem), the Category library only ever sees a finished,
+        well-named download, and nothing numeric ever surfaces (a media
+        server reads a directory named "7" as a movie titled "7").
+
+        A record from before the incoming area keeps working: its slot
+        already sits in the Category, so the rename is in place. A name
+        that cannot be made directory-safe, a target already taken
+        (another Download completed with the same release name, a stray
+        directory on disk), or a torrent that somehow still occupies the
+        slot keeps the numeric path: the record, its files and its quota
+        are correct either way, and the My Media rename stays available
+        as the manual override.
+        """
+        row = self._row(download_id)
+        if row is None or not row["save_path"]:
+            return None
+        leaf = safe_dir_name(torrent_name)
+        if not leaf:
+            logger.info(
+                "Download %s keeps its slot: no safe directory name in %r.",
+                download_id, torrent_name,
+            )
+            return None
+        source_parent = os.path.dirname(os.path.normpath(row["save_path"]))
+        if os.path.basename(os.path.dirname(source_parent)) == INCOMING_DIR_NAME:
+            target_parent = os.path.join(
+                self._base_download_dir, row["category"]
+            )
+            # The Category directory may itself be missing (created
+            # out-of-band); the move cannot land in a directory that
+            # does not exist.
+            os.makedirs(target_parent, exist_ok=True)
+        else:
+            # Pre-incoming-area record: the slot is already shelved in
+            # its Category; the rename happens in place.
+            target_parent = source_parent
+        target = os.path.join(target_parent, leaf)
+        try:
+            self._relocate(row, target)
+        except (PathTakenError, OutsideMediaRootError, ActiveTorrentError) as exc:
+            logger.info("Download %s keeps its slot: %s", download_id, exc)
+            return None
+        logger.info("Download %s shelved as %s.", download_id, target)
+        return target
+
     def rename_download(self, download_id: int, new_name: str) -> dict | None:
         """Rename a completed Download: the record's name and its directory.
 
-        The directory keeps its place under the Category; its leaf becomes
-        the new name. Returns the updated record, or ``None`` when no such
-        Download exists. Refused while the torrent is still an Active
-        Torrent (Protected Path) and for names or paths that escape the
-        Media Root.
+        The directory moves under the Category's directory with the new
+        name as its leaf — the same shelving rule the completion
+        auto-rename follows, so a manual rename is just a deliberate
+        one: a completed Download parked in the incoming area (kept
+        there by a name collision) comes out of it. Returns the updated
+        record, or ``None`` when no such Download exists. Refused while
+        the torrent is still an Active Torrent (Protected Path) and for
+        names or paths that escape the Media Root.
         """
         row = self._row(download_id)
         if row is None or not row["save_path"]:
@@ -277,7 +372,7 @@ class QuotaLedger:
                 "cancel it instead of renaming it."
             )
         target = os.path.join(
-            os.path.dirname(os.path.normpath(row["save_path"])), new_name
+            self._base_download_dir, row["category"], new_name
         )
         self._relocate(row, target)
         db.update_download_name(self._db_path, download_id, new_name)
@@ -346,6 +441,7 @@ class QuotaLedger:
                         size_bytes=disk,
                     )
                     summary["resolved_completed"].append(row["id"])
+                    self._auto_rename_slot(row["id"], row["name"])
                 else:
                     db.delete_download_row(self._db_path, row["id"])
                     summary["released"].append(row["id"])
@@ -448,9 +544,17 @@ class QuotaLedger:
             # The files are already gone (out-of-band change); the record
             # simply repoints.
             db.set_download_save_path(self._db_path, row["id"], target)
+            self._repoint_live_record(row["id"], target)
             return
         shutil.move(source, target)
         db.set_download_save_path(self._db_path, row["id"], target)
+        self._repoint_live_record(row["id"], target)
+
+    def _repoint_live_record(self, download_id: int, target: str) -> None:
+        """Keep an open DownloadRecord handle's ``save_path`` truthful."""
+        record = self._live_records.get(download_id)
+        if record is not None:
+            record.save_path = target
 
     def _ensure_inside_media_root(self, save_path: str) -> None:
         """Hard sandbox: no file operation may escape the Media Root."""

@@ -198,6 +198,12 @@ services:
       - BOT_URL=${BOT_URL}
       - DATABASE_PATH=${DATABASE_PATH}
       - QUOTA_RECONCILE_INTERVAL=${QUOTA_RECONCILE_INTERVAL}
+      # Stall Watchdog: sweep interval in seconds (blank/0 disables the
+      # job) and after how many consecutive stalled sweeps a torrent's
+      # recovery rotates the listening port (the wedged-UDP-socket cure)
+      # instead of just forcing a reannounce.
+      - STALL_WATCH_INTERVAL=${STALL_WATCH_INTERVAL:-}
+      - STALL_PORT_ROTATE_POLLS=${STALL_PORT_ROTATE_POLLS:-}
     volumes:
       - ./data:/data
       - /media:/media

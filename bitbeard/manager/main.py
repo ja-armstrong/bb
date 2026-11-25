@@ -44,6 +44,7 @@ from .quota import (
     QuotaLedger,
 )
 from .search import search
+from .stall_watchdog import StallWatchdog
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,17 @@ async def _run_reconciler(ledger: QuotaLedger, interval: float) -> None:
             logger.exception("Storage Quota reconciliation failed.")
 
 
+async def _run_stall_watchdog(watchdog: StallWatchdog, interval: float) -> None:
+    """Run stall sweeps on an interval; a failing sweep is logged, not fatal."""
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            # Blocking qBittorrent API calls stay out of the event loop.
+            await asyncio.to_thread(watchdog.check_once)
+        except Exception:
+            logger.exception("Stall watchdog sweep failed.")
+
+
 def create_app(
     config: Config | None = None,
     qbt_client: Any | None = None,
@@ -166,17 +178,29 @@ def create_app(
         # file and schema exist (never seeding accounts — that is the API's
         # job) keeps submissions working even when the manager starts first.
         db.initialize(config.db_path)
-        task = None
+        reconciler = None
         if config.reconcile_interval > 0:
-            task = asyncio.create_task(
+            reconciler = asyncio.create_task(
                 _run_reconciler(app.state.quota_ledger, config.reconcile_interval)
             )
-            app.state.reconciler_task = task
+            app.state.reconciler_task = reconciler
+        stall_task = None
+        if config.stall_watch_interval > 0:
+            watchdog = StallWatchdog(
+                app.state.qbt_client,
+                port_rotate_polls=config.stall_port_rotate_polls,
+            )
+            app.state.stall_watchdog = watchdog
+            stall_task = asyncio.create_task(
+                _run_stall_watchdog(watchdog, config.stall_watch_interval)
+            )
+            app.state.stall_watchdog_task = stall_task
         yield
-        if task is not None:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        for task in (reconciler, stall_task):
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
     app = FastAPI(title="Bitbeard Download Manager", lifespan=lifespan)
     app.state.config = config

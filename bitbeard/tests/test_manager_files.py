@@ -481,11 +481,14 @@ def make_record(tmp_path, *, size_bytes=1024):
         account_id=account_id, discord_name=None, title="Some Movies",
         category="Movies", size_bytes=size_bytes,
     )
+    # The download materializes into the slot, then completes — which
+    # shelves the files into the Category under the torrent's name.
+    slot = record.save_path
+    os.makedirs(slot, exist_ok=True)
+    with open(os.path.join(slot, "file.bin"), "wb") as handle:
+        handle.write(b"x" * size_bytes)
     record.completed("Some Movies", size_bytes)
     save_path = record.save_path
-    os.makedirs(save_path, exist_ok=True)
-    with open(os.path.join(save_path, "file.bin"), "wb") as handle:
-        handle.write(b"x" * size_bytes)
     return record, account_id, config.db_path
 
 

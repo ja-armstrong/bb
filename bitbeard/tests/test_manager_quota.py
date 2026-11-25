@@ -178,12 +178,17 @@ def test_an_audiobook_submission_lands_under_the_audiobook_subdirectory(
 
     save_path = qbt.add_calls[0]["save_path"]
     assert save_path == os.path.join(
-        config.base_download_dir, "Audiobooks", str(record.id)
+        config.base_download_dir, "Downloads", "Audiobooks", str(record.id)
     )
     row = get_row(config.db_path, record.id)
     assert row["category"] == "Audiobooks"
-    assert row["save_path"] == save_path
-    assert os.path.isdir(save_path)
+    # The FakeQbt completes the torrent on the first poll, so by the
+    # time the submit returns, the files are shelved into the Category
+    # under the torrent's name and the numeric slot is gone.
+    assert row["save_path"] == os.path.join(
+        config.base_download_dir, "Audiobooks", "Test Torrent"
+    )
+    assert os.path.isdir(row["save_path"])
 
 
 # --- The ownership record ------------------------------------------------
@@ -211,10 +216,11 @@ def test_open_download_records_the_owning_account(tmp_path):
     assert row["status"] == "in_flight"
     assert row["submitted_at"] is not None
     assert row["completed_at"] is None
-    # The Download gets its own directory under the Category's, so its
-    # files are deletable and accountable without touching neighbours.
+    # The Download gets its own directory under the incoming area, so
+    # its files are deletable and accountable without touching
+    # neighbours — and invisible to the media server's Category scans.
     assert row["save_path"] == os.path.join(
-        config.base_download_dir, "Movies", str(record.id)
+        config.base_download_dir, "Downloads", "Movies", str(record.id)
     )
     assert record.save_path == row["save_path"]
 
@@ -237,7 +243,7 @@ def test_open_download_places_audiobook_downloads_in_its_subdirectory(
     row = get_row(config.db_path, record.id)
     assert row["category"] == "Audiobooks"
     assert row["save_path"] == os.path.join(
-        config.base_download_dir, "Audiobooks", str(record.id)
+        config.base_download_dir, "Downloads", "Audiobooks", str(record.id)
     )
     assert record.save_path == row["save_path"]
 
@@ -509,6 +515,10 @@ def test_the_torrent_is_added_into_the_records_own_directory(tmp_path):
         account_id=None, discord_name=None, title=None,
         category="Movies", size_bytes=0,
     )
+    # The add happens into the record's own slot; the FakeQbt completes
+    # on the first poll, so capture the slot before the shelving moves
+    # the record's handle.
+    slot = record.save_path
 
     async def run():
         await manager.submit("magnet:?xt=urn:btih:abc", "Movies", record=record)
@@ -516,9 +526,11 @@ def test_the_torrent_is_added_into_the_records_own_directory(tmp_path):
     asyncio.run(run())
 
     assert qbt.add_calls == [
-        {"urls": "magnet:?xt=urn:btih:abc", "save_path": record.save_path}
+        {"urls": "magnet:?xt=urn:btih:abc", "save_path": slot}
     ]
-    assert os.path.isdir(record.save_path)
+    row = get_row(config.db_path, record.id)
+    assert row["save_path"] != slot  # completed: shelved into the Category
+    assert os.path.isdir(row["save_path"])
 
 
 def test_a_failed_add_releases_the_record(tmp_path):
@@ -580,8 +592,9 @@ def test_reconcile_corrects_a_completed_records_size_from_disk(tmp_path, caplog)
         category="Movies", size_bytes=0,
     )
     record.completed("Some Movies", 3 * DRIFT_WARN_BYTES)
-    # Out-of-band change: an admin removed part of the Download's files.
-    write_files(config.base_download_dir, "Movies", str(record.id))
+    # Out-of-band change: an admin removed part of the Download's files
+    # (the shelved directory is recreated with one file left).
+    write_files(record.save_path)
 
     summary = ledger.reconcile()
 
@@ -605,7 +618,8 @@ def test_reconcile_marks_a_stuck_in_flight_download_completed_from_disk(
         account_id=account_id, discord_name=None, title="Some Movies",
         category="Movies", size_bytes=500,
     )
-    write_files(config.base_download_dir, "Movies", str(record.id))
+    # The download materialized into its slot before the manager died.
+    write_files(record.save_path)
 
     summary = ledger.reconcile()
 
@@ -675,7 +689,7 @@ def test_reconcile_corrects_a_drifted_usage_counter(tmp_path, caplog):
         category="Movies", size_bytes=0,
     )
     record.completed("Some Movies", 1024)
-    write_files(config.base_download_dir, "Movies", str(record.id))
+    write_files(record.save_path)  # the shelved directory, out-of-band
     # Out-of-band change: the counter was clobbered beyond the warn threshold.
     db.set_quota_used(config.db_path, account_id, 2 * DRIFT_WARN_BYTES)
 
